@@ -99,16 +99,20 @@ export async function openRunDirectory(runsRoot: string, runId: string): Promise
 
 export async function openRunDirectoryReadOnly(runsRoot: string, runId: string): Promise<string> {
   validateRunId(runId);
+  return openRunDirectoryWithinRoot(await openRunsRootReadOnly(runsRoot), runId);
+}
+
+export async function openRunsRootReadOnly(runsRoot: string): Promise<string> {
   const rootStat = await statOrNull(runsRoot);
   if (!rootStat) {
-    throw new StoreError("run.not_found", "run does not exist", { runId });
+    throw new StoreError("run.not_found", "runs root does not exist", { runsRoot });
   }
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
     throw new StoreError("path.unsafe_runs_root", "runs root must be a real directory", {
       runsRoot,
     });
   }
-  return openRunDirectoryWithinRoot(await realpath(runsRoot), runId);
+  return realpath(runsRoot);
 }
 
 async function openRunDirectoryWithinRoot(root: string, runId: string): Promise<string> {

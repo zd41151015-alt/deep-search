@@ -508,21 +508,22 @@ test("structured operation traces are ordered, bounded to mechanics, and observe
   );
 });
 
-test("lane materialization failure emits only bounded mechanics and preserves the primary error", async () => {
+test("lane materialization failure emits only bounded mechanics and preserves the primary error", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "batch5-lane-materializer-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runRoot = path.join(runsRoot, "batch5-lane-synthetic");
+  const sourcePath = path.join(
+    runRoot,
+    "staging/lane-submissions/00000000000000000000000000000000.json",
+  );
+  await mkdir(path.dirname(sourcePath), { recursive: true });
+  await writeFile(sourcePath, `${JSON.stringify({ staging_id: "DO_NOT_EMIT_LANE_STAGING_ID" })}\n`);
   const validator = await createArtifactValidator(repositoryRoot);
   const observations: OperationObservation[] = [];
-  const materializer = new LaneResultMaterializer(
-    path.join(tmpdir(), "batch5-unused-runs"),
-    validator,
-    repositoryRoot,
-  );
+  const materializer = new LaneResultMaterializer(runsRoot, validator, repositoryRoot);
   await assert.rejects(
-    materializer.materialize(
-      {
-        staging_id: "DO_NOT_EMIT_LANE_STAGING_ID",
-      },
-      { observe: (event) => observations.push(event) },
-    ),
+    materializer.materializeFile(sourcePath, { observe: (event) => observations.push(event) }),
     (error: unknown) =>
       error instanceof StoreError && error.code === "runtime.lane_staging_invalid",
   );

@@ -16,6 +16,7 @@ import {
   RunStore,
   StoreError,
 } from "../harness/src/index.js";
+import { createFormalStageRuntimeCompiler } from "../harness/src/runtime/declarative-runtime.js";
 import {
   fixtureEnvelope,
   G21_CORE_REFS,
@@ -746,6 +747,32 @@ function byTypes(
   return candidates.filter((candidate) => types.includes(candidate.artifact_type));
 }
 
+async function publishRuntimeEnvelopesAsFormalStage(
+  state: Awaited<ReturnType<typeof lifecycleFixture>>,
+  envelopes: readonly FormalArtifactEnvelope[],
+  requestId: string,
+): Promise<void> {
+  const compiler = createFormalStageRuntimeCompiler(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  await compiler.compile({
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: requestId,
+    run_id: state.runId,
+    operation: "publish",
+    created_at: String(envelopes[0]?.created_at ?? "2026-07-29T00:00:00Z"),
+    artifacts: envelopes.map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role,
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
+  });
+}
+
 const SYNTHESIS_ARTIFACT_TYPES = [
   "startup_opportunity.discovery_candidate_conversion.v2",
   "startup_opportunity.demand_thesis.v1",
@@ -798,10 +825,11 @@ async function publishG33Prerequisites(
     1,
     "candidate_runtime",
   );
-  await state.store.publishArtifactBundle({
-    runId: state.runId,
-    envelopes: candidateRuntimeWave,
-  });
+  await publishRuntimeEnvelopesAsFormalStage(
+    state,
+    candidateRuntimeWave,
+    "request_g3_3_candidate_runtime_wave",
+  );
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(
@@ -866,10 +894,11 @@ async function publishG33Prerequisites(
     3,
     "enrichment_runtime",
   );
-  await state.store.publishArtifactBundle({
-    runId: state.runId,
-    envelopes: enrichmentRuntimeWave,
-  });
+  await publishRuntimeEnvelopesAsFormalStage(
+    state,
+    enrichmentRuntimeWave,
+    "request_g3_3_enrichment_runtime_wave",
+  );
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: byTypes(

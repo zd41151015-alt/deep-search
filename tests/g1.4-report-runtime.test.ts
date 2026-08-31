@@ -27,6 +27,7 @@ import {
   renderTerminalDecisionBrief,
   renderTerminalFullReport,
 } from "../harness/src/reporting/terminal-reporting.js";
+import { createFormalStageRuntimeCompiler } from "../harness/src/runtime/declarative-runtime.js";
 import { deriveResearchProvenance } from "../harness/src/validators/research-handoff-validator.js";
 import {
   type TerminalReportingDocument,
@@ -94,6 +95,35 @@ function documentAt(
   const value = bundle.documents.find((entry) => entry.path === artifactPath)?.document;
   assert.ok(value, `missing fixture path ${artifactPath}`);
   return effective(value);
+}
+
+async function publishRuntimeEnvelopesAsFormalStage(
+  state: {
+    readonly runsRoot: string;
+    readonly validator: Awaited<ReturnType<typeof createArtifactValidator>>;
+  },
+  envelopes: readonly FormalArtifactEnvelope[],
+  requestId: string,
+): Promise<void> {
+  const compiler = createFormalStageRuntimeCompiler(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  await compiler.compile({
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: requestId,
+    run_id: G14_RUN_ID,
+    operation: "publish",
+    created_at: String(envelopes[0]?.created_at ?? "2026-07-25T18:10:00Z"),
+    artifacts: envelopes.map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role,
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
+  });
 }
 
 function reportingDocuments(
@@ -355,25 +385,30 @@ function executionPlanEnvelope(
   bundle: Awaited<ReturnType<typeof createG14ContractBundle>>,
 ): FormalArtifactEnvelope {
   const researchPlan = documentAt(bundle, "plans/research-plan.r1.json");
-  const lanes = g14Branches().map((branch) => ({
-    unit_id: branch.unitId,
-    lane_role: branch.unitId === "unit_counter" ? "risk" : "evaluation",
-    candidate_scope: { kind: "none", candidate_refs: [] },
-    incumbent_response_assignment: {
-      analysis_depth: "not_assigned",
-      assignment_role: "none",
-      subject_refs: [],
-      rationale:
-        "This synthetic branch does not own the separately planned incumbent response deep dive.",
-    },
-    reporting_dimensions: [branch.dimensionId],
-    submission_path: branch.outputPath,
-    submission_schema: "startup_opportunity.concept_evidence_assessment_branch_result.v1",
-    time_budget_minutes: 10,
-    max_sources: 5,
-    straggler_policy: { on_timeout: "publish_partial", grace_minutes: 0, blocks_stage: false },
-    dispatch_group: "commercial_research",
-  }));
+  const lanes = g14Branches().map((branch) => {
+    const task = documentAt(bundle, `tasks/${branch.unitId}.attempt-1.json`);
+    return {
+      unit_id: branch.unitId,
+      lane_role: branch.unitId === "unit_counter" ? "risk" : "evaluation",
+      candidate_scope: { kind: "none", candidate_refs: [] },
+      incumbent_response_assignment: {
+        analysis_depth: "not_assigned",
+        assignment_role: "none",
+        subject_refs: [],
+        rationale:
+          "This synthetic branch does not own the separately planned incumbent response deep dive.",
+      },
+      reporting_dimensions: [branch.dimensionId],
+      submission_path: branch.outputPath,
+      submission_schema: "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+      commercial_audit_output_path: `artifacts/research-audits/${branch.unitId}.json`,
+      lane_submission_contract: task.lane_submission_contract,
+      time_budget_minutes: 10,
+      max_sources: 5,
+      straggler_policy: { on_timeout: "publish_partial", grace_minutes: 0, blocks_stage: false },
+      dispatch_group: "commercial_research",
+    };
+  });
   return v5Envelope(
     "plans/research-execution.r1.json",
     {
@@ -432,6 +467,8 @@ function dispatchEnvelope(
       input_refs: task.input_refs,
       allowed_output_path: branch.outputPath,
       required_artifact_schema: "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+      commercial_audit_output_path: `artifacts/research-audits/${branch.unitId}.json`,
+      lane_submission_contract: task.lane_submission_contract,
       time_budget_minutes: 10,
       max_sources: 5,
       straggler_policy: { on_timeout: "publish_partial", grace_minutes: 0, blocks_stage: false },
@@ -659,35 +696,34 @@ async function prepareRun(
   const branches = g14Branches();
   const demand = branches.find((branch) => branch.unitId === "unit_demand");
   assert.ok(demand);
-  await store
-    .publishArtifactBundle({
-      runId: G14_RUN_ID,
-      envelopes: [
-        executionPlanEnvelope(bundle),
-        dispatchEnvelope(bundle),
-        ...branches.map((branch) => {
-          const taskPath = `tasks/${branch.unitId}.attempt-1.json`;
-          return v5Envelope(
-            taskPath,
-            documentAt(bundle, taskPath),
-            "main_agent",
-            [
-              "concept-hypothesis.json",
-              "scope-frame.json",
-              "plans/research-plan.r1.json",
-              "plans/concept-evidence-assessment-plan.r1.json",
-            ],
-            "2026-07-25T18:11:00Z",
-          );
-        }),
-      ],
-    })
-    .catch((error: unknown) => {
-      if (error instanceof StoreError) {
-        assert.fail(JSON.stringify({ code: error.code, details: error.details }));
-      }
-      throw error;
-    });
+  await publishRuntimeEnvelopesAsFormalStage(
+    { runsRoot, validator },
+    [
+      executionPlanEnvelope(bundle),
+      dispatchEnvelope(bundle),
+      ...branches.map((branch) => {
+        const taskPath = `tasks/${branch.unitId}.attempt-1.json`;
+        return v5Envelope(
+          taskPath,
+          documentAt(bundle, taskPath),
+          "main_agent",
+          [
+            "concept-hypothesis.json",
+            "scope-frame.json",
+            "plans/research-plan.r1.json",
+            "plans/concept-evidence-assessment-plan.r1.json",
+          ],
+          "2026-07-25T18:11:00Z",
+        );
+      }),
+    ],
+    "request_g1_4_commercial_research_wave",
+  ).catch((error: unknown) => {
+    if (error instanceof StoreError) {
+      assert.fail(JSON.stringify({ code: error.code, details: error.details }));
+    }
+    throw error;
+  });
 
   const evidence = new EvidenceStore(runsRoot);
   let demandRecords:

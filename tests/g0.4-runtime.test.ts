@@ -18,6 +18,7 @@ import {
   createPlanRevisionRuntime,
   createPlanSemanticValidator,
   type DocumentBundle,
+  deriveLaneSubmissionContract,
   EvidenceStore,
   type FormalArtifactEnvelope,
   operationKey,
@@ -27,6 +28,7 @@ import {
   sha256Bytes,
   transformPlan,
 } from "../harness/src/index.js";
+import { createFormalStageRuntimeCompiler } from "../harness/src/runtime/declarative-runtime.js";
 import {
   createDiscoveryMapsFixture,
   fixtureEnvelope,
@@ -558,14 +560,113 @@ function runtimeFailureDecision(runId: string): Record<string, unknown> {
   };
 }
 
+function quantitativeCompetitiveScope(): Record<string, unknown> {
+  return {
+    scan_mode: "broad_scan",
+    required_metric_families: [
+      "demand_scale",
+      "usage_behavior",
+      "commercial_behavior",
+      "growth_change",
+      "competitive_intensity",
+      "distribution",
+      "retention_outcomes",
+      "unit_economics",
+    ],
+    required_competitor_types: [
+      "direct_product",
+      "adjacent_product",
+      "service",
+      "platform",
+      "manual_workaround",
+      "status_quo",
+      "non_consumption",
+    ],
+    api_is_optional: true,
+    provider_allowlist_enforced: false,
+    acquisition_execution_owner: "research_agent_or_caller",
+    harness_hidden_network_calls: false,
+    prohibited_access_methods: [
+      "bypass_access_control",
+      "circumvent_login",
+      "circumvent_paywall",
+      "circumvent_captcha",
+      "store_credentials",
+    ],
+  };
+}
+
+function taskSourceBoundary(): Record<string, unknown> {
+  return {
+    chat_is_artifact: false,
+    task_completion_is_artifact: false,
+    hidden_llm_calls: false,
+    harness_dispatches_agent: false,
+    external_validation_supported: false,
+    publication_implies_validation: false,
+  };
+}
+
+function terminalDecisionContext(runId: string): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.decision_context.v1",
+    run_id: runId,
+    decision_to_make: "choose_opportunity",
+    decision_question: "SYNTHETIC terminal fixture question; not market Evidence.",
+    decision_options: ["SYNTHETIC stop without a recommendation."],
+    venture_goal: "strategic_exploration",
+    decision_horizon: "SYNTHETIC no validated decision horizon.",
+    founder_advantages: [],
+    non_negotiable_constraints: ["SYNTHETIC external validation remains out of scope."],
+    team_capability_refs: [],
+    risk_preferences: ["SYNTHETIC preserve an insufficient-evidence conclusion."],
+    initial_belief: "SYNTHETIC no opportunity has been established.",
+    favored_hypothesis: null,
+    assumed_truths: [],
+    final_decision_owner: "user",
+    assumptions: ["SYNTHETIC fixture content is not Evidence."],
+    open_questions: ["SYNTHETIC demand remains unknown."],
+  };
+}
+
+function terminalScopeFrame(runId: string): Record<string, unknown> {
+  return {
+    schema_version: "startup_opportunity.scope_frame.discovery.current",
+    run_id: runId,
+    mode: "opportunity_discovery",
+    decision_context_ref: DECISION_CONTEXT_REF,
+    direction: "SYNTHETIC bounded opportunity discovery fixture.",
+    discovery_profile: "general",
+    research_axes: ["user_language", "jtbd_workflow"],
+    market: "Synthetic",
+    language: "en-US",
+    target_users: ["synthetic user"],
+    excluded_users: [],
+    platform: "SYNTHETIC delivery platform remains unknown.",
+    market_motion: "consumer",
+    acquisition_motion: ["direct"],
+    buyer_models: ["self_payer"],
+    payment_modes: ["subscription"],
+    native_app_required: false,
+    delivery_form_preferences: [],
+    business_model_preferences: [],
+    team_context: CONFIRMED_SCOPE.team_context,
+    risk_preferences: ["SYNTHETIC avoid unsupported conclusions."],
+    ai_scope: "optional",
+    assumptions: ["SYNTHETIC Scope is not market Evidence."],
+    open_questions: ["SYNTHETIC all demand questions remain open."],
+  };
+}
+
 function incompleteExecutionPlanEnvelope(
   runId: string,
   plan: Record<string, unknown>,
 ): FormalArtifactEnvelope {
   const plannedUnit = (plan.waves as Record<string, unknown>[])
     .flatMap((wave) => wave.units as Record<string, unknown>[])
-    .find((candidate) => candidate.unit_id === "counter_completed");
+    .find((candidate) => candidate.unit_id === "value_pending");
   assert.ok(plannedUnit);
+  const commercialAuditOutputPath = "artifacts/research-audits/value_pending.json";
   const envelope = formalEnvelope(
     runId,
     "plans/research-execution.r1.json",
@@ -605,8 +706,18 @@ function incompleteExecutionPlanEnvelope(
                 rationale: "The synthetic lane has no assigned incumbent response analysis.",
               },
               reporting_dimensions: ["demand"],
-              submission_path: "artifacts/discovery/generation/counter_completed.r1.json",
+              submission_path: "artifacts/discovery/generation/value_pending.r1.json",
               submission_schema: "startup_opportunity.discovery_generation_result.v1",
+              commercial_audit_output_path: commercialAuditOutputPath,
+              lane_submission_contract: deriveLaneSubmissionContract({
+                runId,
+                unitId: String(plannedUnit.unit_id),
+                taskId: `task_${String(plannedUnit.unit_id)}`,
+                attempt: 1,
+                formalOutputPath: "artifacts/discovery/generation/value_pending.r1.json",
+                formalArtifactSchema: "startup_opportunity.discovery_generation_result.v1",
+                commercialAuditOutputPath,
+              }),
               time_budget_minutes: 10,
               max_sources: 5,
               straggler_policy: {
@@ -626,6 +737,151 @@ function incompleteExecutionPlanEnvelope(
     [PLAN_REF],
   );
   return { ...envelope, producer_role: "main_agent" };
+}
+
+function incompleteExecutionWaveEnvelopes(
+  runId: string,
+  plan: Record<string, unknown>,
+): readonly FormalArtifactEnvelope[] {
+  const executionEnvelope = incompleteExecutionPlanEnvelope(runId, plan);
+  const execution = executionEnvelope.document;
+  const stage = (execution.stages as Record<string, unknown>[])[0];
+  assert.ok(stage);
+  const lane = (stage.lanes as Record<string, unknown>[])[0];
+  assert.ok(lane);
+  const unitId = String(lane.unit_id);
+  const wave = (plan.waves as Record<string, unknown>[]).find((candidate) =>
+    (candidate.units as Record<string, unknown>[]).some((unit) => unit.unit_id === unitId),
+  );
+  assert.ok(wave);
+  const plannedUnit = (wave.units as Record<string, unknown>[]).find(
+    (candidate) => candidate.unit_id === unitId,
+  );
+  assert.ok(plannedUnit);
+  const laneSubmissionContract = lane.lane_submission_contract as Record<string, unknown>;
+  const taskId = String(laneSubmissionContract.task_id);
+  const taskPath = `tasks/discovery/${unitId}.attempt-1.json`;
+  const commercialAuditOutputPath = String(lane.commercial_audit_output_path);
+  const decisionContextEnvelope = formalEnvelope(
+    runId,
+    DECISION_CONTEXT_REF,
+    terminalDecisionContext(runId),
+  );
+  const scopeFrameEnvelope = formalEnvelope(runId, SCOPE_FRAME_REF, terminalScopeFrame(runId), [
+    DECISION_CONTEXT_REF,
+  ]);
+  const taskDocument = {
+    schema_version: "startup_opportunity.research_task.discovery_candidate.current",
+    task_id: taskId,
+    run_id: runId,
+    unit_id: unitId,
+    mode: "opportunity_discovery",
+    phase: "discovery",
+    wave_id: wave.wave_id,
+    unit_type: plannedUnit.unit_type,
+    research_goal: plannedUnit.research_goal,
+    commercial_research_requirements: {
+      research_stage: "solution_neutral_scan",
+      resource_allocation: execution.resource_allocation,
+      planned_queries: [
+        {
+          query: "SYNTHETIC runtime failure lane query; contract fixture only, not Evidence.",
+          commercial_dimensions: [
+            "user_language",
+            "purchase",
+            "alternatives",
+            "usage",
+            "distribution",
+            "counterevidence",
+          ],
+        },
+      ],
+      quantitative_competitive_scope: quantitativeCompetitiveScope(),
+      incumbent_response_assignment: structuredClone(lane.incumbent_response_assignment),
+      required_commercial_dimensions: [
+        "recent_user_language",
+        "purchase_signal",
+        "alternatives_pricing_usage",
+        "distribution_channel",
+        "independent_counterevidence",
+      ],
+      commercial_audit_output_path: commercialAuditOutputPath,
+    },
+    target_candidate_refs: [],
+    scope_frame_ref: SCOPE_FRAME_REF,
+    research_plan_ref: PLAN_REF,
+    input_refs: plannedUnit.input_refs,
+    attempt: 1,
+    supersedes_task_ref: null,
+    agent_role: plannedUnit.agent_role,
+    source_phase: "candidate_generation",
+    required_source_group_ids: ["synthetic_runtime_failure_sources"],
+    allowed_output_path: lane.submission_path,
+    required_artifact_schema: lane.submission_schema,
+    lane_submission_contract: laneSubmissionContract,
+    required_stances: ["support", "oppose"],
+    stop_conditions: ["SYNTHETIC stop after deterministic runtime failure fixture coverage."],
+    completion_message_contract: {
+      formal_artifact_authority: false,
+      include_artifact_path: true,
+      include_limitations: true,
+    },
+    execution_contract: taskSourceBoundary(),
+    dispatched_at: "2026-07-24T12:07:16Z",
+  };
+  const taskEnvelope = {
+    ...formalEnvelope(runId, taskPath, taskDocument, [PLAN_REF, SCOPE_FRAME_REF]),
+    producer_role: "main_agent",
+  } as FormalArtifactEnvelope;
+  const dispatch = {
+    schema_version: "startup_opportunity.dispatch_batch.discovery.current",
+    batch_id: "batch_incomplete_runtime",
+    revision: 1,
+    run_id: runId,
+    mode: "opportunity_discovery",
+    execution_plan_ref: executionEnvelope.artifact_path,
+    research_plan_ref: PLAN_REF,
+    stage_id: stage.stage_id,
+    dispatch_group: lane.dispatch_group,
+    task_ready_at: "2026-07-24T12:07:16Z",
+    dispatch_requested_at: "2026-07-24T12:07:17Z",
+    dispatch_mode: "parallel_immediate",
+    tasks: [
+      {
+        task_id: taskId,
+        unit_id: unitId,
+        lane_role: lane.lane_role,
+        incumbent_response_assignment: structuredClone(lane.incumbent_response_assignment),
+        research_goal: plannedUnit.research_goal,
+        input_refs: plannedUnit.input_refs,
+        allowed_output_path: lane.submission_path,
+        required_artifact_schema: lane.submission_schema,
+        commercial_audit_output_path: commercialAuditOutputPath,
+        lane_submission_contract: laneSubmissionContract,
+        time_budget_minutes: lane.time_budget_minutes,
+        max_sources: lane.max_sources,
+        straggler_policy: structuredClone(lane.straggler_policy),
+      },
+    ],
+    agent_dispatch_performed: false,
+    launch_registration_required: true,
+    limitations: [
+      "SYNTHETIC dispatch closes the incomplete runtime Execution without starting agents.",
+    ],
+  };
+  const dispatchEnvelope = formalEnvelope(
+    runId,
+    "tasks/dispatch/incomplete-runtime.r1.json",
+    dispatch,
+    [executionEnvelope.artifact_path, taskPath],
+  );
+  return [
+    decisionContextEnvelope,
+    scopeFrameEnvelope,
+    taskEnvelope,
+    executionEnvelope,
+    dispatchEnvelope,
+  ];
 }
 
 function completionDecision(runId: string): Record<string, unknown> {
@@ -1241,6 +1497,7 @@ async function setupPersistedRun(
     runsRoot,
     runRoot,
     store,
+    validator,
     plan,
     gap,
     decision,
@@ -1252,6 +1509,32 @@ async function setupPersistedRun(
     checkpointEntry,
     discoveryBundle,
   };
+}
+
+async function publishRuntimeEnvelopesAsFormalStage(
+  setup: Awaited<ReturnType<typeof setupPersistedRun>>,
+  envelopes: readonly FormalArtifactEnvelope[],
+  requestId: string,
+): Promise<void> {
+  const compiler = createFormalStageRuntimeCompiler(
+    setup.runsRoot,
+    setup.validator,
+    repositoryRoot,
+  );
+  await compiler.compile({
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: requestId,
+    run_id: String(envelopes[0]?.run_id ?? ""),
+    operation: "publish",
+    created_at: String(envelopes[0]?.created_at ?? "2026-07-24T12:07:00Z"),
+    artifacts: envelopes.map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role,
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
+  });
 }
 
 async function prepareTerminalReporting(
@@ -4960,17 +5243,16 @@ test("runtime failure alone may close with a disclosed missing Search Closure", 
   await contextTest.test("strict runtime-failure closure is ready", async (subcontext) => {
     const runId = "runtime-failure-before-search-closure";
     const setup = await setupPersistedRun(subcontext, runId, "runtime-failure");
-    await setup.store
-      .publishArtifact({
-        runId,
-        envelope: incompleteExecutionPlanEnvelope(runId, setup.plan),
-      })
-      .catch((error: unknown) => {
-        if (error instanceof StoreError) {
-          assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
-        }
-        throw error;
-      });
+    await publishRuntimeEnvelopesAsFormalStage(
+      setup,
+      incompleteExecutionWaveEnvelopes(runId, setup.plan),
+      `request_g0_4_incomplete_runtime_${runId}`,
+    ).catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+      }
+      throw error;
+    });
     const terminal = await prepareTerminalReporting(setup, true);
     const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
     await runtime.apply({
@@ -5017,10 +5299,11 @@ test("runtime failure alone may close with a disclosed missing Search Closure", 
     async (subcontext) => {
       const runId = "insufficient-evidence-before-search-closure";
       const setup = await setupPersistedRun(subcontext, runId, "terminate");
-      await setup.store.publishArtifact({
-        runId,
-        envelope: incompleteExecutionPlanEnvelope(runId, setup.plan),
-      });
+      await publishRuntimeEnvelopesAsFormalStage(
+        setup,
+        incompleteExecutionWaveEnvelopes(runId, setup.plan),
+        `request_g0_4_incomplete_runtime_${runId}`,
+      );
       const terminal = await prepareTerminalReporting(setup);
       const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
       await runtime.apply({
@@ -6876,7 +7159,11 @@ test("late Artifact is persisted only as ignored and remains ignored after reope
     }
     return [envelope as FormalArtifactEnvelope];
   });
-  await store.publishArtifactBundle({ runId, envelopes: preparationEnvelopes });
+  await publishRuntimeEnvelopesAsFormalStage(
+    setup,
+    preparationEnvelopes,
+    `request_g0_4_late_preparation_${runId}`,
+  );
   const planUnit = (setup.plan.waves as { units: Record<string, unknown>[] }[])
     .flatMap((wave) => wave.units)
     .find((unit) => unit.unit_id === "unit_seed_independent_demand");

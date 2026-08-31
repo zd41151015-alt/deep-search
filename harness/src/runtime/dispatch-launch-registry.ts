@@ -11,6 +11,10 @@ import {
   canonicalLaneLifecyclePath,
   dispatchLaunchRegistrationPath,
 } from "./lane-lifecycle-identity.js";
+import {
+  deriveLaneSubmissionContract,
+  type LaneSubmissionContract,
+} from "./lane-submission-contract.js";
 
 export interface DispatchLaunchRegistrationRequest extends Record<string, unknown> {
   readonly schema_version: "startup_opportunity.dispatch_launch_registration_request.v1";
@@ -120,6 +124,26 @@ function taskSchema(
       task.required_artifact_schema ??
       task.submission_schema ??
       "startup_opportunity.assessment_lane_result.v1",
+  );
+}
+
+function taskSubmissionContract(
+  task: Record<string, unknown>,
+  artifacts: readonly EffectiveArtifact[],
+): LaneSubmissionContract {
+  const formalTask = formalTaskForDispatchTask(task, artifacts);
+  return (
+    (formalTask?.document.lane_submission_contract as LaneSubmissionContract | undefined) ??
+    (task.lane_submission_contract as LaneSubmissionContract | undefined) ??
+    deriveLaneSubmissionContract({
+      runId: String(formalTask?.document.run_id ?? task.run_id ?? ""),
+      unitId: String(task.unit_id),
+      taskId: String(task.task_id),
+      attempt: taskAttempt(task, artifacts),
+      formalOutputPath: taskOutputPath(task),
+      formalArtifactSchema: taskSchema(task, artifacts),
+      commercialAuditOutputPath: null,
+    })
   );
 }
 
@@ -238,6 +262,8 @@ export class DispatchLaunchRegistry {
           attempt,
           allowed_output_path: taskOutputPath(task),
           required_artifact_schema: taskSchema(task, artifacts),
+          staging_output_path: taskSubmissionContract(task, artifacts).staging_output_path,
+          lane_submission_contract: taskSubmissionContract(task, artifacts),
           execution_attempt_ids: executionAttemptIds,
           launch_state:
             executionAttemptIds.length === 0
@@ -413,7 +439,9 @@ export class DispatchLaunchRegistry {
           formalTask.document.task_id !== registration.task_id ||
           formalTask.document.attempt !== registration.attempt ||
           formalTask.document.allowed_output_path !== taskOutputPath(task) ||
-          formalTask.document.required_artifact_schema !== taskSchema(task, artifacts))
+          formalTask.document.required_artifact_schema !== taskSchema(task, artifacts) ||
+          canonicalJson(formalTask.document.lane_submission_contract ?? null) !==
+            canonicalJson(task.lane_submission_contract ?? null))
       ) {
         throw new StoreError(
           "runtime.launch_registration_task_mismatch",

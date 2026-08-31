@@ -8,6 +8,12 @@
     "schema_version",
     "run_id",
     "task_ref",
+    "staging_output_path",
+    "staging_schema",
+    "formal_output_path",
+    "required_artifact_schema",
+    "lane_submission_contract",
+    "staging_document",
     "checklist",
     "additional_material_allowed",
     "formal_artifact"
@@ -16,6 +22,19 @@
     "schema_version": { "const": "startup_opportunity.lane_submission_checklist_result.current" },
     "run_id": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId" },
     "task_ref": { "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRef" },
+    "staging_output_path": {
+      "$ref": "./lane-submission-contract.schema.json#/$defs/stagingOutputPath"
+    },
+    "staging_schema": { "const": "startup_opportunity.lane_staging_document.current" },
+    "formal_output_path": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactPath"
+    },
+    "required_artifact_schema": {
+      "type": "string",
+      "pattern": "^startup_opportunity(?:\\.[a-z][a-z0-9_]*)+(?:\\.v[1-9][0-9]*|\\.current)$"
+    },
+    "lane_submission_contract": { "$ref": "./lane-submission-contract.schema.json" },
+    "staging_document": { "$ref": "./lane-staging-document.schema.json" },
     "checklist": {
       "type": "array",
       "minItems": 1,

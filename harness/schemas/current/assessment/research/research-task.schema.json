@@ -25,6 +25,7 @@
     "agent_role",
     "allowed_output_path",
     "required_artifact_schema",
+    "lane_submission_contract",
     "required_stances",
     "tool_guidance",
     "stop_conditions",
@@ -100,6 +101,9 @@
     },
     "required_artifact_schema": {
       "const": "startup_opportunity.concept_evidence_assessment_branch_result.v1"
+    },
+    "lane_submission_contract": {
+      "$ref": "../../runtime/common/lane-submission-contract.schema.json"
     },
     "required_stances": {
       "type": "array",

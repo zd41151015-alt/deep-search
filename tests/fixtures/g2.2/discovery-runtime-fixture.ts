@@ -2,6 +2,7 @@ import {
   canonicalContentHash,
   type DiscoveryProfile,
   type DocumentBundle,
+  deriveLaneSubmissionContract,
   type EvidenceStoreRecord,
   type FormalArtifactEnvelope,
 } from "../../../harness/src/index.js";
@@ -47,6 +48,98 @@ function replaceExactStrings(value: unknown, replacements: ReadonlyMap<string, s
   return Object.fromEntries(
     Object.entries(value).map(([key, entry]) => [key, replaceExactStrings(entry, replacements)]),
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function records(value: unknown): readonly Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function refreshLaneSubmissionContracts(
+  documents: readonly { readonly path: string; readonly document: Record<string, unknown> }[],
+): void {
+  const taskContracts = new Map<
+    string,
+    {
+      readonly allowedOutputPath: string;
+      readonly requiredArtifactSchema: string;
+      readonly commercialAuditOutputPath: string | null;
+      readonly laneSubmissionContract: Record<string, unknown>;
+    }
+  >();
+  for (const entry of documents) {
+    const envelope = entry.document;
+    if (
+      !String(envelope.schema_version).startsWith("startup_opportunity.artifact_envelope.") ||
+      !String(envelope.artifact_type).startsWith("startup_opportunity.research_task.")
+    ) {
+      continue;
+    }
+    const task = isRecord(envelope.document) ? envelope.document : null;
+    if (task === null) continue;
+    const requirements = isRecord(task.commercial_research_requirements)
+      ? task.commercial_research_requirements
+      : null;
+    const commercialAuditOutputPath =
+      requirements !== null && typeof requirements.commercial_audit_output_path === "string"
+        ? requirements.commercial_audit_output_path
+        : null;
+    const allowedOutputPath = String(task.allowed_output_path);
+    const requiredArtifactSchema = String(task.required_artifact_schema);
+    const laneSubmissionContract = deriveLaneSubmissionContract({
+      runId: String(task.run_id),
+      unitId: String(task.unit_id),
+      taskId: String(task.task_id),
+      attempt: Number(task.attempt ?? 1),
+      formalOutputPath: allowedOutputPath,
+      formalArtifactSchema: requiredArtifactSchema,
+      commercialAuditOutputPath,
+    });
+    task.lane_submission_contract = laneSubmissionContract;
+    taskContracts.set(String(task.unit_id), {
+      allowedOutputPath,
+      requiredArtifactSchema,
+      commercialAuditOutputPath,
+      laneSubmissionContract,
+    });
+  }
+  for (const entry of documents) {
+    const envelope = entry.document;
+    if (
+      !String(envelope.schema_version).startsWith("startup_opportunity.artifact_envelope.") ||
+      !isRecord(envelope.document)
+    ) {
+      continue;
+    }
+    const document = envelope.document;
+    if (
+      envelope.artifact_type === "startup_opportunity.research_execution_plan.discovery.current"
+    ) {
+      for (const stage of records(document.stages)) {
+        for (const lane of records(stage.lanes)) {
+          const contract = taskContracts.get(String(lane.unit_id));
+          if (contract === undefined) continue;
+          lane.submission_path = contract.allowedOutputPath;
+          lane.submission_schema = contract.requiredArtifactSchema;
+          lane.commercial_audit_output_path = contract.commercialAuditOutputPath;
+          lane.lane_submission_contract = contract.laneSubmissionContract;
+        }
+      }
+    }
+    if (envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current") {
+      for (const task of records(document.tasks)) {
+        const contract = taskContracts.get(String(task.unit_id));
+        if (contract === undefined) continue;
+        task.allowed_output_path = contract.allowedOutputPath;
+        task.required_artifact_schema = contract.requiredArtifactSchema;
+        task.commercial_audit_output_path = contract.commercialAuditOutputPath;
+        task.lane_submission_contract = contract.laneSubmissionContract;
+      }
+    }
+  }
 }
 
 function applyMechanicalBinding(
@@ -116,6 +209,7 @@ export async function createDiscoveryRuntimeFixture(
     documents: { path: string; document: Record<string, unknown> }[];
     exact_records: { ref: string; document: Record<string, unknown> }[];
   };
+  refreshLaneSubmissionContracts(mutable.documents);
   mutable.exact_records = [
     ...mutable.exact_records.filter((record) => !record.ref.startsWith("evidence/manifest.jsonl#")),
     {

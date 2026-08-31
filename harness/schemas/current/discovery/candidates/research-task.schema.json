@@ -26,6 +26,7 @@
     "required_source_group_ids",
     "allowed_output_path",
     "required_artifact_schema",
+    "lane_submission_contract",
     "required_stances",
     "stop_conditions",
     "completion_message_contract",
@@ -120,6 +121,9 @@
         "startup_opportunity.discovery_lane_result.v1",
         "startup_opportunity.discovery_generation_result.v1"
       ]
+    },
+    "lane_submission_contract": {
+      "$ref": "../../runtime/common/lane-submission-contract.schema.json"
     },
     "required_stances": {
       "type": "array",

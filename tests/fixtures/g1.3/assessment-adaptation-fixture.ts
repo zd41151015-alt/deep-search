@@ -3,6 +3,7 @@ import path from "node:path";
 import type { TestContext } from "node:test";
 import {
   canonicalContentHash,
+  createArtifactValidator,
   type DocumentBundle,
   EvidenceStore,
   type EvidenceStoreRecord,
@@ -12,12 +13,14 @@ import {
   transformAssessmentPlan,
   transformPlan,
 } from "../../../harness/src/index.js";
+import { createFormalStageRuntimeCompiler } from "../../../harness/src/runtime/declarative-runtime.js";
 import { createConfirmedRun, publishInitialPlanBundle } from "../../helpers/current-run.js";
 import {
   branchResearchEnvelopes,
   dispatchEnvelope,
   executionPlanEnvelope,
   type FixtureBranch,
+  laneSubmissionContract,
   taskEnvelope,
 } from "../g1.2/research-branch-fixture.js";
 
@@ -49,6 +52,7 @@ export interface G13FixtureState {
   readonly runId: string;
   readonly branch: FixtureBranch;
   readonly store: RunStore;
+  readonly validator: Awaited<ReturnType<typeof createArtifactValidator>>;
   readonly baseBundle: {
     readonly documents: readonly {
       readonly path: string;
@@ -60,6 +64,70 @@ export interface G13FixtureState {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function records(value: unknown): readonly Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function commercialAuditOutputPath(task: Record<string, unknown>): string | null {
+  const requirements = isRecord(task.commercial_research_requirements)
+    ? task.commercial_research_requirements
+    : null;
+  if (requirements !== null && typeof requirements.commercial_audit_output_path === "string") {
+    return requirements.commercial_audit_output_path;
+  }
+  return typeof task.commercial_audit_output_path === "string"
+    ? task.commercial_audit_output_path
+    : null;
+}
+
+function refreshTaskSubmissionContract(task: Record<string, unknown>, runId: string): void {
+  if (typeof task.task_id !== "string" || typeof task.unit_id !== "string") return;
+  task.lane_submission_contract = laneSubmissionContract(
+    runId,
+    task.unit_id,
+    task.task_id,
+    Number(task.attempt ?? 1),
+    String(task.allowed_output_path ?? task.submission_path),
+    String(task.required_artifact_schema ?? task.submission_schema),
+    commercialAuditOutputPath(task),
+  );
+}
+
+function refreshLaneSubmissionContracts(document: Record<string, unknown>, runId: string): void {
+  if (String(document.schema_version).startsWith("startup_opportunity.research_task.")) {
+    refreshTaskSubmissionContract(document, runId);
+  }
+  if (document.schema_version === "startup_opportunity.dispatch_batch.discovery.current") {
+    for (const task of records(document.tasks)) {
+      refreshTaskSubmissionContract(task, runId);
+    }
+  }
+  if (document.schema_version === "startup_opportunity.research_execution_plan.discovery.current") {
+    for (const stage of records(document.stages)) {
+      for (const lane of records(stage.lanes)) {
+        const contract = laneSubmissionContract(
+          runId,
+          String(lane.unit_id),
+          String(
+            isRecord(lane.lane_submission_contract) ? lane.lane_submission_contract.task_id : "",
+          ),
+          Number(
+            isRecord(lane.lane_submission_contract) ? lane.lane_submission_contract.attempt : 1,
+          ),
+          String(lane.submission_path),
+          String(lane.submission_schema),
+          commercialAuditOutputPath(lane),
+        );
+        lane.lane_submission_contract = contract;
+      }
+    }
+  }
 }
 
 export function formalEnvelope(
@@ -85,7 +153,9 @@ export function formalEnvelope(
 }
 
 function withRun(envelope: FormalArtifactEnvelope, runId: string): FormalArtifactEnvelope {
-  const document = { ...envelope.document, run_id: runId };
+  const document = clone(envelope.document);
+  document.run_id = runId;
+  refreshLaneSubmissionContracts(document, runId);
   return {
     ...envelope,
     run_id: runId,
@@ -213,12 +283,8 @@ export async function prepareG13Run(
   context.after(() => rm(root, { recursive: true, force: true }));
   const runsRoot = path.join(root, "runs");
   const runRoot = path.join(runsRoot, runId);
-  const store = new RunStore(
-    runsRoot,
-    await import("../../../harness/src/index.js").then((module) =>
-      module.createArtifactValidator(repositoryRoot),
-    ),
-  );
+  const validator = await createArtifactValidator(repositoryRoot);
+  const store = new RunStore(runsRoot, validator);
   await createConfirmedRun(store, {
     runId,
     mode: "concept_evidence_assessment",
@@ -271,7 +337,20 @@ export async function prepareG13Run(
   execution.document.research_plan_hash = canonicalContentHash(currentPlan);
   (execution as { content_hash: string }).content_hash = canonicalContentHash(execution.document);
   const dispatch = withRun(dispatchEnvelope(baseBundle, [branch]), runId);
-  await store.publishArtifactBundle({ runId, envelopes: [execution, dispatch, task] });
+  await createFormalStageRuntimeCompiler(runsRoot, validator, repositoryRoot).compile({
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: `request_g1_3_${branch.unitId}_wave_${runId}`,
+    run_id: runId,
+    operation: "publish",
+    created_at: String(execution.created_at),
+    artifacts: [execution, dispatch, task].map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role,
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
+  });
   const evidenceStore = new EvidenceStore(runsRoot);
   const researchGoal = String(task.document.research_goal);
   const first = await evidenceStore.record({
@@ -309,6 +388,7 @@ export async function prepareG13Run(
     runId,
     branch,
     store,
+    validator,
     baseBundle,
     records: [...records],
   };
@@ -355,9 +435,23 @@ export async function publishAdditionalG13Branch(
     content_hash: canonicalContentHash(dispatchDocument),
     document: dispatchDocument,
   };
-  await state.store.publishArtifactBundle({
-    runId: state.runId,
-    envelopes: [execution, dispatch, task],
+  await createFormalStageRuntimeCompiler(
+    state.runsRoot,
+    state.validator,
+    state.repositoryRoot,
+  ).compile({
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: `request_g1_3_followup_${branch.unitId}_wave_${state.runId}`,
+    run_id: state.runId,
+    operation: "publish",
+    created_at: String(execution.created_at),
+    artifacts: [execution, dispatch, task].map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role,
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
   });
   const evidenceStore = new EvidenceStore(state.runsRoot);
   const researchGoal = String(task.document.research_goal);

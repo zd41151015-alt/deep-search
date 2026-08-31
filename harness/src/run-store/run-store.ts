@@ -45,6 +45,11 @@ import {
   DOCUMENT_BUNDLE_SCHEMA_VERSION,
 } from "../artifact-store/publication-policy.js";
 import { withRunCreationLock, withRunLock } from "../artifact-store/run-lock.js";
+import {
+  hasAuthenticatedRuntimeProjectionAuthority,
+  runtimeProjectionPublicationAuthorityPaths,
+  withAuthenticatedRuntimeProjectionAuthority,
+} from "../artifact-store/runtime-projection-authority.js";
 import { StoreError } from "../artifact-store/store-error.js";
 import {
   type EvidenceRecoveryResult,
@@ -579,6 +584,18 @@ function strings(value: unknown): readonly string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function runtimePublicationReferenceContext(
+  input: unknown,
+  context: DocumentBundleReferenceContext,
+): DocumentBundleReferenceContext {
+  return hasAuthenticatedRuntimeProjectionAuthority(input)
+    ? withAuthenticatedRuntimeProjectionAuthority(
+        context,
+        runtimeProjectionPublicationAuthorityPaths(input),
+      )
+    : context;
 }
 
 function outputPathForTaskProjection(task: Record<string, unknown>): string | null {
@@ -2803,6 +2820,79 @@ export class RunStore {
           }
         }
       }
+      if (
+        [
+          "startup_opportunity.research_execution_plan.discovery.current",
+          "startup_opportunity.research_execution_plan.assessment.current",
+        ].includes(String(nextDocument.schema_version))
+      ) {
+        const expectedDispatchSchema =
+          nextDocument.schema_version ===
+          "startup_opportunity.research_execution_plan.discovery.current"
+            ? "startup_opportunity.dispatch_batch.discovery.current"
+            : "startup_opportunity.dispatch_batch.assessment.current";
+        const currentArtifactRefs = new Set(manifest.artifact_refs);
+        for (const authority of [...stored.values()].sort((left, right) =>
+          left.path.localeCompare(right.path),
+        )) {
+          if (!currentArtifactRefs.has(authority.path)) {
+            continue;
+          }
+          const authorityDocument = effective(authority.document);
+          if (
+            authorityDocument.schema_version !== expectedDispatchSchema ||
+            authorityDocument.run_id !== nextDocument.run_id ||
+            authorityDocument.execution_plan_ref !== next.path ||
+            authorityDocument.research_plan_ref !== nextDocument.research_plan_ref
+          ) {
+            continue;
+          }
+          const stage = records(nextDocument.stages).find(
+            (candidate) => candidate.stage_id === authorityDocument.stage_id,
+          );
+          if (
+            stage !== undefined &&
+            records(stage.lanes).some(
+              (lane) => lane.dispatch_group === authorityDocument.dispatch_group,
+            )
+          ) {
+            await addAuthority(authority);
+          }
+        }
+      }
+      if (
+        [
+          "startup_opportunity.dispatch_batch.discovery.current",
+          "startup_opportunity.dispatch_batch.assessment.current",
+        ].includes(String(nextDocument.schema_version)) &&
+        Array.isArray(nextDocument.tasks)
+      ) {
+        const currentArtifactRefs = new Set(manifest.artifact_refs);
+        for (const authority of [...stored.values()].sort((left, right) =>
+          left.path.localeCompare(right.path),
+        )) {
+          if (!currentArtifactRefs.has(authority.path)) {
+            continue;
+          }
+          const authorityDocument = effective(authority.document);
+          if (
+            !String(authorityDocument.schema_version).startsWith(
+              "startup_opportunity.research_task.",
+            )
+          ) {
+            continue;
+          }
+          if (
+            nextDocument.tasks
+              .filter(isRecord)
+              .some((task) =>
+                dispatchOwnsResearchTask(manifest, authorityDocument, nextDocument, task),
+              )
+          ) {
+            await addAuthority(authority);
+          }
+        }
+      }
       for (const ref of artifactRefsForDocument(next)) {
         const parsed = validateArtifactRef(ref);
         if (parsed.path === "events.jsonl" || parsed.path === "decisions.jsonl") {
@@ -2991,9 +3081,12 @@ export class RunStore {
         this.logs,
       );
       const prospectiveManifest = prospectiveInitialPlanManifest(manifest, [input.envelope]);
-      const result = await this.artifacts.publishLocked(runRoot, input, false, {
+      const publicationReferenceContext = runtimePublicationReferenceContext(input, {
         historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
         ...(prospectiveManifest === null ? {} : { prospectiveManifest }),
+      });
+      const result = await this.artifacts.publishLocked(runRoot, input, false, {
+        ...publicationReferenceContext,
       });
       if (taskPublicationMode === "replay") {
         return result;
@@ -3175,10 +3268,15 @@ export class RunStore {
         this.logs,
       );
       const prospectiveManifest = prospectiveInitialPlanManifest(originalManifest, input.envelopes);
-      const result = await this.artifacts.publishBundleLocked(runRoot, input, {
+      const publicationReferenceContext = runtimePublicationReferenceContext(input, {
         historicalDiscoveryPlanBindings: planOperationRecovery.historicalDiscoveryPlanBindings,
         ...(prospectiveManifest === null ? {} : { prospectiveManifest }),
       });
+      const result = await this.artifacts.publishBundleLocked(
+        runRoot,
+        input,
+        publicationReferenceContext,
+      );
       const publicationResults = new Map(
         result.artifacts.map((artifact) => [artifact.artifactPath, artifact.status]),
       );
@@ -4010,6 +4108,9 @@ export class RunStore {
         } catch {
           pendingOperations.push(entry.name);
         }
+        continue;
+      }
+      if (receipt.schema_version === "startup_opportunity.artifact_bundle_authority.current") {
         continue;
       }
       if (
@@ -4946,6 +5047,11 @@ export class RunStore {
             task.document.required_artifact_schema,
           ],
           [
+            "lane_submission_contract",
+            dispatched.lane_submission_contract,
+            task.document.lane_submission_contract,
+          ],
+          [
             "incumbent_response_assignment",
             dispatched.incumbent_response_assignment,
             isRecord(task.document.commercial_research_requirements)
@@ -4953,7 +5059,7 @@ export class RunStore {
               : undefined,
           ],
         ].flatMap(([field, expected, actual]) =>
-          canonicalJson(expected) === canonicalJson(actual) ? [] : [field],
+          canonicalJson(expected ?? null) === canonicalJson(actual ?? null) ? [] : [field],
         );
         const dispatchInputs = Array.isArray(dispatched.input_refs)
           ? dispatched.input_refs.filter((value): value is string => typeof value === "string")

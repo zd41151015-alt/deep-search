@@ -8,6 +8,7 @@ import {
   evaluateAssessmentFollowupInformationGain,
 } from "../runtime/assessment-information-gain.js";
 import { deriveLaneScopeFormalClosure } from "../runtime/lane-delivery-closure.js";
+import { deriveLaneSubmissionContract } from "../runtime/lane-submission-contract.js";
 import { assessmentCoverageSemanticsError } from "./assessment-coverage-semantics.js";
 import type { AssessmentExecutionPolicy } from "./assessment-execution-policy.js";
 import { sortIssues, type ValidationIssue } from "./schema-bundle.js";
@@ -60,6 +61,20 @@ function duplicateStrings(values: readonly string[]): readonly string[] {
     seen.add(value);
   }
   return [...duplicates].sort();
+}
+
+function assessmentDispatchTaskAttempt(task: Record<string, unknown>): number {
+  const submissionAttempt = /\.attempt-([1-9][0-9]*)\.json$/u.exec(
+    String(task.submission_path ?? ""),
+  )?.[1];
+  return Number(task.attempt ?? submissionAttempt ?? 1);
+}
+
+function assessmentLaneAttempt(lane: Record<string, unknown>): number {
+  const submissionAttempt = /\.attempt-([1-9][0-9]*)\.json$/u.exec(
+    String(lane.submission_path ?? ""),
+  )?.[1];
+  return Number(submissionAttempt ?? 1);
 }
 
 function issue(
@@ -763,6 +778,22 @@ function validateExecutionPlan(
     }
   }
   const lanes = stages.flatMap((stage) => records(stage.lanes).map((lane) => ({ lane, stage })));
+  const executionStagingPaths = lanes
+    .map(({ lane }) =>
+      isRecord(lane.lane_submission_contract)
+        ? String(lane.lane_submission_contract.staging_output_path ?? "")
+        : "",
+    )
+    .filter((value) => value !== "");
+  for (const duplicate of duplicateStrings(executionStagingPaths)) {
+    errors.push(
+      issue(
+        "assessment_execution.execution_staging_path_conflict",
+        `${execution.path}#${duplicate}`,
+        "assessment execution lanes must each have one unique Lane staging output path",
+      ),
+    );
+  }
   for (const { lane, stage } of lanes) {
     const assignment = isRecord(lane.incumbent_response_assignment)
       ? lane.incumbent_response_assignment
@@ -863,11 +894,23 @@ function validateExecutionPlan(
 
   const units = new Map(planUnits(plan).map((unit) => [String(unit.unit_id), unit]));
   for (const { lane, stage } of lanes) {
+    const unitId = String(lane.unit_id ?? "");
     const unit = units.get(String(lane.unit_id));
+    const expectedSubmissionContract = deriveLaneSubmissionContract({
+      runId: String(execution.document.run_id),
+      unitId,
+      taskId: `task_${unitId}`,
+      attempt: assessmentLaneAttempt(lane),
+      formalOutputPath: String(lane.submission_path),
+      formalArtifactSchema: "startup_opportunity.assessment_lane_result.v1",
+      commercialAuditOutputPath: null,
+    });
     if (
       unit?.plan_disposition !== "enabled" ||
       unit.output_path !== lane.submission_path ||
-      unit.required_artifact_schema !== "startup_opportunity.assessment_lane_result.v1"
+      unit.required_artifact_schema !== "startup_opportunity.assessment_lane_result.v1" ||
+      canonicalJson(lane.lane_submission_contract ?? null) !==
+        canonicalJson(expectedSubmissionContract)
     ) {
       errors.push(
         issue(
@@ -1159,14 +1202,43 @@ function validateDispatch(
       ),
     );
   }
+  const stagingPaths = tasks
+    .map((task) =>
+      isRecord(task.lane_submission_contract)
+        ? String(task.lane_submission_contract.staging_output_path ?? "")
+        : "",
+    )
+    .filter((value) => value !== "");
+  for (const duplicate of duplicateStrings(stagingPaths)) {
+    errors.push(
+      issue(
+        "assessment_execution.dispatch_staging_path_conflict",
+        `${dispatch.path}#${duplicate}`,
+        "assessment dispatch tasks must each have one unique Lane staging output path",
+      ),
+    );
+  }
   for (const task of tasks) {
     const lane = lanes.find((candidate) => candidate.unit_id === task.unit_id);
+    const expectedSubmissionContract = deriveLaneSubmissionContract({
+      runId: String(dispatch.document.run_id),
+      unitId: String(task.unit_id),
+      taskId: String(task.task_id),
+      attempt: assessmentDispatchTaskAttempt(task),
+      formalOutputPath: String(task.submission_path),
+      formalArtifactSchema: "startup_opportunity.assessment_lane_result.v1",
+      commercialAuditOutputPath: null,
+    });
     if (
       lane === undefined ||
       lane.lane_role !== task.lane_role ||
       canonicalJson(lane.incumbent_response_assignment) !==
         canonicalJson(task.incumbent_response_assignment) ||
       lane.submission_path !== task.submission_path ||
+      canonicalJson(lane.lane_submission_contract ?? null) !==
+        canonicalJson(expectedSubmissionContract) ||
+      canonicalJson(task.lane_submission_contract ?? null) !==
+        canonicalJson(expectedSubmissionContract) ||
       !sameStrings(strings(lane.reporting_dimensions), strings(task.reporting_dimensions))
     ) {
       errors.push(

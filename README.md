@@ -77,7 +77,7 @@ npm run harness -- validate-plan --bundle path/to/document-bundle.json --json
 npm run harness -- publish-artifact --file path/to/envelope-or-bundle.json
 npm run harness -- compile-artifacts --file path/to/runtime-artifact-compilation-request.json
 npm run harness -- materialize-formal-stage --file path/to/formal-stage-materialization-request.json
-npm run harness -- materialize-lane-result --file path/to/lane-staging-document.json
+npm run harness -- materialize-lane-result --file path/to/runs/RUN_ID/staging/lane-submissions/<digest>.json
 npm run harness -- scaffold-lane-submission --run-id RUN_ID --task-ref REF
 npm run harness -- checkpoint-run --file path/to/checkpoint-input.json
 npm run harness -- analyze-gaps --file path/to/gap-analysis-input.json --json
@@ -89,6 +89,8 @@ npm run harness -- calculate-sensitivity --bundle path/to/document-bundle.json -
 npm run harness -- audit-traceability --bundle path/to/document-bundle.json --json
 npm run harness -- build-report --file path/to/build-report-input.json --json
 ```
+
+`scaffold-lane-submission` returns the exact run-root-relative staging output path for that Task; `materialize-lane-result` consumes that staging file for validate-only and publish.
 
 Command success proves mechanical validity only. It does not establish Evidence truth, sufficiency, market demand, recommendation readiness, external validation, or startup success.
 

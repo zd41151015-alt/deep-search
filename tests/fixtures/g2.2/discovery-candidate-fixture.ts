@@ -2,6 +2,7 @@ import {
   canonicalContentHash,
   type DiscoveryProfile,
   type DocumentBundle,
+  deriveLaneSubmissionContract,
 } from "../../../harness/src/index.js";
 import { discoveryWaveEnvelopes } from "../../helpers/discovery-wave.js";
 import {
@@ -270,6 +271,8 @@ function task(
   outputPath: string,
   groupId: string,
 ): Record<string, unknown> {
+  const requiredArtifactSchema = "startup_opportunity.discovery_lane_result.v1";
+  const commercialAuditOutputPath = `artifacts/research-audits/${unitId}.json`;
   return {
     schema_version: "startup_opportunity.research_task.discovery_candidate.current",
     task_id: `task_${unitId}`,
@@ -318,7 +321,7 @@ function task(
         "distribution_channel",
         "independent_counterevidence",
       ],
-      commercial_audit_output_path: `artifacts/research-audits/${unitId}.json`,
+      commercial_audit_output_path: commercialAuditOutputPath,
     },
     target_candidate_refs: [G22_DEMAND_R1, G22_BASELINE_R1, G22_SOLUTION_R1],
     scope_frame_ref: G21_SCOPE_REF,
@@ -330,7 +333,16 @@ function task(
     source_phase: sourcePhase,
     required_source_group_ids: [groupId],
     allowed_output_path: outputPath,
-    required_artifact_schema: "startup_opportunity.discovery_lane_result.v1",
+    required_artifact_schema: requiredArtifactSchema,
+    lane_submission_contract: deriveLaneSubmissionContract({
+      runId: G22_RUN_ID,
+      unitId,
+      taskId: `task_${unitId}`,
+      attempt: 1,
+      formalOutputPath: outputPath,
+      formalArtifactSchema: requiredArtifactSchema,
+      commercialAuditOutputPath,
+    }),
     required_stances: ["support", "oppose"],
     stop_conditions: [synthetic("stop after deterministic fixture coverage")],
     completion_message_contract: {

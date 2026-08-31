@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -8,11 +8,13 @@ import {
   type AssessmentExecutionDocument,
   type AssessmentExecutionPolicy,
   canonicalContentHash,
+  canonicalJson,
   createArtifactValidator,
   DeclarativeRuntimeCompiler,
   DispatchLaunchRegistry,
   deriveAssessmentFollowupRevision,
   deriveAssessmentInformationGainAuthority,
+  deriveLaneSubmissionContract,
   EvidenceStore,
   type FormalArtifactEnvelope,
   LaneResultMaterializer,
@@ -209,6 +211,7 @@ function concept(runId: string): Record<string, unknown> {
 }
 
 function lane(
+  runId: string,
   unitId: string,
   laneRole: string,
   reportingDimensions: readonly string[],
@@ -231,11 +234,34 @@ function lane(
     reporting_dimensions: reportingDimensions,
     submission_path: submissionPath,
     submission_schema: "startup_opportunity.assessment_lane_result.v1",
+    lane_submission_contract: laneSubmissionContractForAssessmentTask(
+      runId,
+      unitId,
+      `task_${unitId}`,
+      submissionPath,
+    ),
     time_budget_minutes: 15,
     max_sources: 10,
     straggler_policy: { on_timeout: "publish_partial", grace_minutes: 0, blocks_stage: false },
     dispatch_group: dispatchGroup,
   };
+}
+
+function laneSubmissionContractForAssessmentTask(
+  runId: string,
+  unitId: string,
+  taskId: string,
+  submissionPath: string,
+): Record<string, unknown> {
+  return deriveLaneSubmissionContract({
+    runId,
+    unitId,
+    taskId,
+    attempt: 1,
+    formalOutputPath: submissionPath,
+    formalArtifactSchema: "startup_opportunity.assessment_lane_result.v1",
+    commercialAuditOutputPath: null,
+  });
 }
 
 function executionPlan(runId: string, plan: Record<string, unknown>): Record<string, unknown> {
@@ -267,6 +293,7 @@ function executionPlan(runId: string, plan: Record<string, unknown>): Record<str
         gate_after: "artifacts/assessment/gates/early.r1.json",
         lanes: [
           lane(
+            runId,
             "unit_problem_evidence",
             "evidence",
             dimensions.slice(0, 3),
@@ -274,6 +301,7 @@ function executionPlan(runId: string, plan: Record<string, unknown>): Record<str
             "assessment_early",
           ),
           lane(
+            runId,
             "unit_counter_risk",
             "counter_evidence",
             dimensions.slice(8, 10),
@@ -290,6 +318,7 @@ function executionPlan(runId: string, plan: Record<string, unknown>): Record<str
         gate_after: "artifacts/assessment/gates/commercial.r1.json",
         lanes: [
           lane(
+            runId,
             "unit_commercial",
             "commercial",
             dimensions.slice(3, 6),
@@ -307,6 +336,7 @@ function executionPlan(runId: string, plan: Record<string, unknown>): Record<str
         gate_after: "artifacts/assessment/gates/delivery.r1.json",
         lanes: [
           lane(
+            runId,
             "unit_business_delivery",
             "feasibility",
             dimensions.slice(6, 8),
@@ -349,6 +379,18 @@ function contractCodes(
   return validateAssessmentExecutionContract(documents, exactRecords, policy).map(
     (issue) => issue.code,
   );
+}
+
+async function writeAssessmentLaneStagingFile(
+  runRoot: string,
+  dispatchTask: Record<string, unknown>,
+  staging: Record<string, unknown>,
+): Promise<string> {
+  const contract = dispatchTask.lane_submission_contract as Record<string, unknown>;
+  const sourcePath = path.join(runRoot, String(contract.staging_output_path));
+  await mkdir(path.dirname(sourcePath), { recursive: true });
+  await writeFile(sourcePath, `${JSON.stringify(staging, null, 2)}\n`);
+  return sourcePath;
 }
 
 function resultForLane(
@@ -499,6 +541,12 @@ function dispatchForStage(
     incumbent_response_assignment: structuredClone(selectedLane.incumbent_response_assignment),
     reporting_dimensions: selectedLane.reporting_dimensions,
     submission_path: selectedLane.submission_path,
+    lane_submission_contract: laneSubmissionContractForAssessmentTask(
+      runId,
+      String(selectedLane.unit_id),
+      `task_${String(selectedLane.unit_id)}`,
+      String(selectedLane.submission_path),
+    ),
     time_budget_minutes: selectedLane.time_budget_minutes,
     max_sources: selectedLane.max_sources,
   }));
@@ -765,6 +813,7 @@ test("four staged workflows cover ten report dimensions and ten one-dimension la
     .slice(0, 3)
     .map((dimension, index) =>
       lane(
+        runId,
         `split_early_${String(index)}`,
         "evidence",
         [dimension],
@@ -778,6 +827,7 @@ test("four staged workflows cover ten report dimensions and ten one-dimension la
       .slice(8, 10)
       .map((dimension, index) =>
         lane(
+          runId,
           `split_risk_${String(index)}`,
           "risk",
           [dimension],
@@ -790,6 +840,7 @@ test("four staged workflows cover ten report dimensions and ten one-dimension la
     .slice(3, 6)
     .map((dimension, index) =>
       lane(
+        runId,
         `split_commercial_${String(index)}`,
         "commercial",
         [dimension],
@@ -801,6 +852,7 @@ test("four staged workflows cover ten report dimensions and ten one-dimension la
     .slice(6, 8)
     .map((dimension, index) =>
       lane(
+        runId,
         `split_delivery_${String(index)}`,
         "feasibility",
         [dimension],
@@ -833,6 +885,135 @@ test("four staged workflows cover ten report dimensions and ten one-dimension la
   );
   assert.ok(duplicateCodes.includes("assessment_execution.reporting_coverage_invalid"));
   assert.ok(duplicateCodes.includes("assessment_execution.stage_coverage_invalid"));
+
+  const earlyStage = recordAt(execution.stages as Record<string, unknown>[], 0, "early stage");
+  const firstSubmissionLane = recordAt(
+    earlyStage.lanes as Record<string, unknown>[],
+    0,
+    "first execution lane",
+  );
+  const firstDispatch = dispatchForStage(runId, execution, 0, null);
+  const firstDispatchTask = recordAt(
+    firstDispatch.document.tasks as Record<string, unknown>[],
+    0,
+    "first dispatch task",
+  );
+  assert.equal(
+    canonicalJson(firstSubmissionLane.lane_submission_contract),
+    canonicalJson(firstDispatchTask.lane_submission_contract),
+  );
+  const contractMutations: readonly [string, (contract: Record<string, unknown>) => void][] = [
+    [
+      "run",
+      (contract) => {
+        contract.run_id = "wrong-run";
+      },
+    ],
+    [
+      "unit",
+      (contract) => {
+        contract.unit_id = "wrong_unit";
+      },
+    ],
+    [
+      "task",
+      (contract) => {
+        contract.task_id = "wrong_task";
+      },
+    ],
+    [
+      "attempt",
+      (contract) => {
+        contract.attempt = 2;
+      },
+    ],
+    [
+      "path",
+      (contract) => {
+        contract.formal_output_path = "artifacts/assessment/lanes/wrong-output.attempt-1.json";
+      },
+    ],
+  ];
+  for (const [, mutate] of contractMutations) {
+    const drifted = structuredClone(execution);
+    const driftedStage = recordAt(
+      drifted.stages as Record<string, unknown>[],
+      0,
+      "drifted early stage",
+    );
+    const driftedLane = recordAt(
+      driftedStage.lanes as Record<string, unknown>[],
+      0,
+      "drifted lane",
+    );
+    mutate(driftedLane.lane_submission_contract as Record<string, unknown>);
+    assert.ok(
+      contractCodes(
+        baseDocuments(runId, plan, drifted),
+        validator.assessmentExecutionPolicy,
+      ).includes("assessment_execution.lane_plan_mismatch"),
+    );
+  }
+
+  const missingContract = structuredClone(execution);
+  const missingStage = recordAt(
+    missingContract.stages as Record<string, unknown>[],
+    0,
+    "missing contract stage",
+  );
+  const missingLane = recordAt(
+    missingStage.lanes as Record<string, unknown>[],
+    0,
+    "missing contract lane",
+  );
+  delete missingLane.lane_submission_contract;
+  assert.ok(
+    contractCodes(
+      baseDocuments(runId, plan, missingContract),
+      validator.assessmentExecutionPolicy,
+    ).includes("assessment_execution.lane_plan_mismatch"),
+  );
+
+  const duplicateStaging = structuredClone(execution);
+  const duplicateStage = recordAt(
+    duplicateStaging.stages as Record<string, unknown>[],
+    0,
+    "duplicate contract stage",
+  );
+  const duplicateLaneA = recordAt(
+    duplicateStage.lanes as Record<string, unknown>[],
+    0,
+    "duplicate lane a",
+  );
+  const duplicateLaneB = recordAt(
+    duplicateStage.lanes as Record<string, unknown>[],
+    1,
+    "duplicate lane b",
+  );
+  (duplicateLaneB.lane_submission_contract as Record<string, unknown>).staging_output_path = String(
+    (duplicateLaneA.lane_submission_contract as Record<string, unknown>).staging_output_path,
+  );
+  assert.ok(
+    contractCodes(
+      baseDocuments(runId, plan, duplicateStaging),
+      validator.assessmentExecutionPolicy,
+    ).includes("assessment_execution.execution_staging_path_conflict"),
+  );
+
+  const dispatchDrift = structuredClone(firstDispatch);
+  const driftedDispatchTask = recordAt(
+    dispatchDrift.document.tasks as Record<string, unknown>[],
+    0,
+    "drifted dispatch task",
+  );
+  (driftedDispatchTask.lane_submission_contract as Record<string, unknown>).task_id =
+    "wrong_dispatch_task";
+  assert.ok(
+    contractCodes(
+      [...baseDocuments(runId, plan, execution), dispatchDrift],
+      validator.assessmentExecutionPolicy,
+    ).includes("assessment_execution.dispatch_task_drift"),
+  );
 });
 
 test("multi-dimension results preserve lane coverage and early-kill gates stop later stages", async () => {
@@ -2012,8 +2193,17 @@ test("Assessment Lane delivery derives its Dispatch contract and atomically publ
     agent_documents: [{ artifact_family: "lane_result", document: laneSemantics }],
   };
   const materializer = new LaneResultMaterializer(state.runsRoot, state.validator, repositoryRoot);
+  const selectedDispatchTask = (dispatch.document.tasks as Record<string, unknown>[]).find(
+    (task) => task.task_id === `task_${String(selectedLane.unit_id)}`,
+  );
+  assert.ok(selectedDispatchTask);
   const before = (await state.store.status(state.runId)).manifest;
-  const validated = await materializer.materialize(staging);
+  const stagingFile = await writeAssessmentLaneStagingFile(
+    path.join(state.runsRoot, state.runId),
+    selectedDispatchTask,
+    staging,
+  );
+  const validated = await materializer.materializeFile(stagingFile);
   assert.equal(validated.compilation.status, "validated");
   assert.deepEqual((await state.store.status(state.runId)).manifest, before);
   assert.deepEqual(
@@ -2025,13 +2215,18 @@ test("Assessment Lane delivery derives its Dispatch contract and atomically publ
   publish.operation = "publish";
   (publish as typeof publish & { publication_plan: unknown }).publication_plan =
     validated.compilation.publication_plan;
-  const published = await materializer.materialize(publish);
+  const publishFile = await writeAssessmentLaneStagingFile(
+    path.join(state.runsRoot, state.runId),
+    selectedDispatchTask,
+    publish,
+  );
+  const published = await materializer.materializeFile(publishFile);
   assert.equal(published.compilation.status, "published");
   assert.deepEqual(
     published.compilation.compiled_envelopes,
     validated.compilation.compiled_envelopes,
   );
-  const replay = await materializer.materialize(publish);
+  const replay = await materializer.materializeFile(publishFile);
   assert.equal(replay.compilation.status, "idempotent_replay");
   const reopened = await new RunStore(state.runsRoot, state.validator).load(state.runId);
   assert.ok(reopened.manifest.artifact_refs.includes(laneResult.path));
@@ -2056,9 +2251,16 @@ test("Assessment Lane delivery derives its Dispatch contract and atomically publ
       unit_id: selectedLane.unit_id,
     },
   });
+  const unauthorizedAuditFile = await writeAssessmentLaneStagingFile(
+    path.join(state.runsRoot, state.runId),
+    selectedDispatchTask,
+    unauthorizedAudit,
+  );
+  const beforeUnauthorizedAudit = (await state.store.status(state.runId)).manifest;
   await assert.rejects(
-    materializer.materialize(unauthorizedAudit),
+    materializer.materializeFile(unauthorizedAuditFile),
     (error: unknown) =>
       error instanceof StoreError && error.code === "runtime.lane_staging_invalid",
   );
+  assert.deepEqual((await state.store.status(state.runId)).manifest, beforeUnauthorizedAudit);
 });

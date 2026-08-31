@@ -1,5 +1,9 @@
-import type { EvidenceStoreRecord, FormalArtifactEnvelope } from "../../../harness/src/index.js";
-import { canonicalContentHash } from "../../../harness/src/index.js";
+import {
+  canonicalContentHash,
+  deriveLaneSubmissionContract,
+  type EvidenceStoreRecord,
+  type FormalArtifactEnvelope,
+} from "../../../harness/src/index.js";
 
 export const G12_RUN_ID = "run_g1_2_synthetic_001";
 export const G12_BASE_TIME = "2026-07-24T20:00:00Z";
@@ -104,6 +108,26 @@ export function envelope(
   };
 }
 
+export function laneSubmissionContract(
+  runId: string,
+  unitId: string,
+  taskId: string,
+  attempt: number,
+  formalOutputPath: string,
+  formalArtifactSchema: string,
+  commercialAuditOutputPath: string | null,
+) {
+  return deriveLaneSubmissionContract({
+    runId,
+    unitId,
+    taskId,
+    attempt,
+    formalOutputPath,
+    formalArtifactSchema,
+    commercialAuditOutputPath,
+  });
+}
+
 export function executionPlanEnvelope(
   baseBundle: {
     readonly documents: readonly {
@@ -157,6 +181,10 @@ export function executionPlanEnvelope(
           reporting_dimensions: [branches[index]?.dimensionId],
           submission_path: task.document.allowed_output_path,
           submission_schema: task.document.required_artifact_schema,
+          commercial_audit_output_path: (
+            task.document.commercial_research_requirements as Record<string, unknown>
+          ).commercial_audit_output_path,
+          lane_submission_contract: task.document.lane_submission_contract,
           time_budget_minutes: 10,
           max_sources: 5,
           straggler_policy: {
@@ -304,6 +332,15 @@ export function taskEnvelope(
     agent_role: "lane-researcher",
     allowed_output_path: branch.outputPath,
     required_artifact_schema: "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+    lane_submission_contract: laneSubmissionContract(
+      G12_RUN_ID,
+      branch.unitId,
+      `task_${branch.unitId}`,
+      1,
+      branch.outputPath,
+      "startup_opportunity.concept_evidence_assessment_branch_result.v1",
+      `artifacts/research-audits/${branch.unitId}.json`,
+    ),
     required_stances: ["support", "oppose"],
     tool_guidance: ["Only explicit synthetic fixture inputs are in scope."],
     stop_conditions: ["Stop after the mechanical contract chain is complete."],
@@ -373,6 +410,10 @@ export function dispatchEnvelope(
       input_refs: task.document.input_refs,
       allowed_output_path: task.document.allowed_output_path,
       required_artifact_schema: task.document.required_artifact_schema,
+      commercial_audit_output_path: (
+        task.document.commercial_research_requirements as Record<string, unknown>
+      ).commercial_audit_output_path,
+      lane_submission_contract: task.document.lane_submission_contract,
       time_budget_minutes: 10,
       max_sources: 5,
       straggler_policy: {

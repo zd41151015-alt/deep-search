@@ -18,6 +18,7 @@ import {
   StoreError,
   sha256Bytes,
 } from "../harness/src/index.js";
+import { createFormalStageRuntimeCompiler } from "../harness/src/runtime/declarative-runtime.js";
 import {
   deriveResearchProvenance,
   type ResearchHandoffDocument,
@@ -87,6 +88,7 @@ interface HandoffState {
   readonly sourceRunId: string;
   readonly targetRunId: string;
   readonly store: RunStore;
+  readonly validator: Awaited<ReturnType<typeof createArtifactValidator>>;
   readonly evidence: EvidenceStore;
   readonly targetBundle: Awaited<ReturnType<typeof createDiscoveryMapsFixture>>;
   readonly input: CreateResearchHandoffInput;
@@ -318,6 +320,32 @@ function initialCandidateEnvelopes(bundle: DocumentBundle): readonly FormalArtif
   );
 }
 
+async function publishTargetRuntimeEnvelopesAsFormalStage(
+  state: HandoffState,
+  envelopes: readonly FormalArtifactEnvelope[],
+  requestId: string,
+): Promise<void> {
+  const compiler = createFormalStageRuntimeCompiler(
+    state.runsRoot,
+    state.validator,
+    repositoryRoot,
+  );
+  await compiler.compile({
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: requestId,
+    run_id: state.targetRunId,
+    operation: "publish",
+    created_at: String(envelopes[0]?.created_at ?? "2026-08-12T17:20:00Z"),
+    artifacts: envelopes.map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role,
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
+  });
+}
+
 async function publishDiscoveryThroughFanIn(
   state: HandoffState,
   bundle: DocumentBundle,
@@ -326,16 +354,17 @@ async function publishDiscoveryThroughFanIn(
     runId: state.targetRunId,
     envelopes: initialCandidateEnvelopes(bundle),
   });
-  await state.store.publishArtifactBundle({
-    runId: state.targetRunId,
-    envelopes: discoveryWaveEnvelopes(
+  await publishTargetRuntimeEnvelopesAsFormalStage(
+    state,
+    discoveryWaveEnvelopes(
       bundle,
       state.targetRunId,
       "startup_opportunity.research_task.discovery_candidate.current",
       1,
       "candidate_runtime",
     ),
-  });
+    "request_handoff_candidate_runtime_wave",
+  );
   await state.store.publishArtifactBundle({
     runId: state.targetRunId,
     envelopes: formalEnvelopesByType(
@@ -639,6 +668,7 @@ async function prepareState(
     sourceRunId,
     targetRunId,
     store,
+    validator,
     evidence,
     targetBundle,
     input,
@@ -881,16 +911,17 @@ test("formal Evidence adoption requires the exact controlled read, item, and tar
         runId: state.targetRunId,
         envelopes: initialCandidateEnvelopes(bundle),
       });
-      await state.store.publishArtifactBundle({
-        runId: state.targetRunId,
-        envelopes: discoveryWaveEnvelopes(
+      await publishTargetRuntimeEnvelopesAsFormalStage(
+        state,
+        discoveryWaveEnvelopes(
           bundle,
           state.targetRunId,
           "startup_opportunity.research_task.discovery_candidate.current",
           1,
           `evidence_authority_${variant}`,
         ),
-      });
+        `request_handoff_evidence_authority_${variant.replaceAll("-", "_")}_wave`,
+      );
       const inheritedEvidencePath = G22_GENERATION_EVIDENCE.replace(
         /ev_[a-f0-9]{64}/,
         imported.evidence_id,
@@ -983,16 +1014,17 @@ test("restricted inherited substrate remains context and cannot support a formal
     runId: state.targetRunId,
     envelopes: initialCandidateEnvelopes(bundle),
   });
-  await state.store.publishArtifactBundle({
-    runId: state.targetRunId,
-    envelopes: discoveryWaveEnvelopes(
+  await publishTargetRuntimeEnvelopesAsFormalStage(
+    state,
+    discoveryWaveEnvelopes(
       bundle,
       state.targetRunId,
       "startup_opportunity.research_task.discovery_candidate.current",
       1,
       "restricted_evidence_runtime",
     ),
-  });
+    "request_handoff_restricted_evidence_runtime_wave",
+  );
 
   const inheritedEvidencePath = G22_GENERATION_EVIDENCE.replace(
     /ev_[a-f0-9]{64}/,

@@ -160,14 +160,15 @@ export async function runMaterializeLaneResult(
     if (file === undefined) {
       throw new StoreError("command.invalid_arguments", "missing required argument --file");
     }
-    const staging = JSON.parse(await readFile(file, "utf8")) as unknown;
     const validator = await createArtifactValidator(repositoryRoot);
     const runsRoot = parsed.values.get("--runs-root") ?? path.join(repositoryRoot, "runs");
     const result = await new LaneResultMaterializer(
       runsRoot,
       validator,
       repositoryRoot,
-    ).materialize(staging, { observe: stderrOperationObserver(parsed.observe) });
+    ).materializeFile(file, {
+      observe: stderrOperationObserver(parsed.observe),
+    });
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   } catch (error) {
