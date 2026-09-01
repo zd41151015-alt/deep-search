@@ -58,21 +58,24 @@
           "const": "stop_followup"
         },
         {
+          "const": "record_runtime_failure"
+        },
+        {
           "const": "complete_research"
         },
         {
           "const": "cancel_research"
         }
       ],
-      "minItems": 5,
-      "maxItems": 5,
+      "minItems": 6,
+      "maxItems": 6,
       "items": false
     },
     "coverage_key_algorithm": {
       "const": "canonical_assessment_coverage_identity_sha256.v1"
     },
     "plan_revision_operation_identity": {
-      "const": "canonical_parent_plan_hash_and_sorted_adaptation_refs.v1"
+      "const": "canonical_parent_plan_hash_base_manifest_hash_and_sorted_adaptation_refs.v1"
     },
     "add_unit_rules": {
       "type": "array",

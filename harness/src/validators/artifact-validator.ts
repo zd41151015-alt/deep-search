@@ -1133,11 +1133,10 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "assessment_plan_ref",
           "startup_opportunity.concept_evidence_assessment_plan.v1",
         ),
-        ...optionalRef(
-          document,
-          "subject_ref",
+        ...optionalRef(document, "subject_ref", [
           "startup_opportunity.concept_hypothesis.assessment.current",
-        ),
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+        ]),
         ...optionalRef(
           document,
           "scope_frame_ref",
@@ -1194,11 +1193,10 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "assessment_plan_ref",
           "startup_opportunity.concept_evidence_assessment_plan.v1",
         ),
-        ...optionalRef(
-          document,
-          "subject_ref",
+        ...optionalRef(document, "subject_ref", [
           "startup_opportunity.concept_hypothesis.assessment.current",
-        ),
+          "startup_opportunity.concept_hypothesis.assessment_intake.current",
+        ]),
         ...optionalRef(
           document,
           "scope_frame_ref",
@@ -4407,6 +4405,34 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           ],
           "task_id",
         ),
+      ];
+    case "startup_opportunity.execution_stage_closeout.v1":
+      return [
+        ...optionalRef(document, "research_plan_ref", "startup_opportunity.research_plan.v1"),
+        ...optionalRef(document, "execution_plan_ref", [
+          "startup_opportunity.research_execution_plan.discovery.current",
+          "startup_opportunity.research_execution_plan.assessment.current",
+        ]),
+        ...optionalRef(document, "dispatch_ref", [
+          "startup_opportunity.dispatch_batch.discovery.current",
+          "startup_opportunity.dispatch_batch.assessment.current",
+        ]),
+        ...refsFromNestedArray(
+          document,
+          "unit_dispositions",
+          "lifecycle_ref",
+          "startup_opportunity.lane_lifecycle.v1",
+        ),
+        ...refsFromArray(document, "basis_refs", [
+          "startup_opportunity.adaptation_decision.discovery.current",
+          "startup_opportunity.adaptation_decision.assessment.current",
+          "startup_opportunity.gap_snapshot.discovery.plan.current",
+          "startup_opportunity.gap_snapshot.discovery.readiness.current",
+          "startup_opportunity.gap_snapshot.assessment.current",
+          "startup_opportunity.lane_lifecycle.v1",
+          "startup_opportunity.dispatch_batch.discovery.current",
+          "startup_opportunity.dispatch_batch.assessment.current",
+        ]),
       ];
     case "startup_opportunity.dispatch_launch_registration.v1":
       return [

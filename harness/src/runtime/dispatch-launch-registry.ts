@@ -493,6 +493,7 @@ export class DispatchLaunchRegistry {
           handoff_ready_at: null,
           formalization_validated_at: null,
           published_at: null,
+          ended_at: null,
         },
         failure: null,
         limitations: [

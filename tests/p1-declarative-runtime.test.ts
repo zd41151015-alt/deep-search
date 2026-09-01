@@ -9,6 +9,8 @@ import {
   ArtifactStore,
   artifactRefsForDocument,
   canonicalContentHash,
+  canonicalExecutionStageCloseoutId,
+  canonicalExecutionStageCloseoutPath,
   canonicalJson,
   canonicalLaneLifecycleId,
   canonicalLaneLifecyclePath,
@@ -703,6 +705,7 @@ function lifecycle(
       handoff_ready_at: null,
       formalization_validated_at: null,
       published_at: null,
+      ended_at: null,
     },
     failure: null,
     limitations: ["SYNTHETIC lifecycle observation."],
@@ -1416,6 +1419,205 @@ test("Discovery Execution lanes carry the exact Task and Dispatch submission con
     ...documents.slice(3),
   ]).map((issue) => issue.code);
   assert.ok(dispatchCodes.includes("runtime.dispatch_task_contract_mismatch"));
+});
+
+test("execution stage closeout enforces exact unit cardinality and latest lifecycle refs", async (t) => {
+  const state = await prepareDiscoveryTaskBridgeRun(t, "stage-closeout-validator");
+  const execution = executionPlan(state.runId, state.plan, "generation");
+  const batch = dispatchBatch(state.runId, state.plan, execution);
+  const tasks = canonicalDiscoveryTasks(state.bundle, state.plan, batch);
+  const dispatchTasks = (batch.tasks as Record<string, unknown>[]).sort((left, right) =>
+    String(left.unit_id).localeCompare(String(right.unit_id)),
+  );
+  assert.ok(dispatchTasks.length >= 2);
+  const failedTask = dispatchTasks[0] as Record<string, unknown>;
+  const failedUnitId = String(failedTask.unit_id);
+  const dispatchRef = "tasks/dispatch/runtime.r1.json";
+  const dispatchHash = canonicalContentHash(batch);
+  const failedTaskRef = `${dispatchRef}#${String(failedTask.task_id)}`;
+  const lifecycleRoot = lifecycle(state.runId, failedUnitId, batch, 1, "agent_started");
+  const lifecycleRootRef = canonicalLaneLifecyclePath(lifecycleRoot, 1);
+  const lifecycleCloseout = structuredClone(lifecycleRoot);
+  lifecycleCloseout.revision = 2;
+  lifecycleCloseout.parent_lifecycle_ref = lifecycleRootRef;
+  lifecycleCloseout.state = "failed";
+  (lifecycleCloseout.timestamps as Record<string, unknown>).ended_at = "2026-07-31T16:01:08Z";
+  const decisionPath = "adaptations/decisions/runtime-stage-closeout.json";
+  const gapPath = "adaptations/gap-snapshots/runtime-stage-closeout.r1.json";
+  const gapRef = `${gapPath}#gap_runtime_blocked_stage_closeout`;
+  const reason = "SYNTHETIC runtime failure blocks execution without research conclusions.";
+  const stopCondition = "SYNTHETIC runtime blocker requires terminal closeout.";
+  const failureDetail = canonicalJson({
+    action: "record_runtime_failure",
+    decision_ref: decisionPath,
+    gap_refs: [gapRef],
+    reason,
+    stop_condition: stopCondition,
+  });
+  lifecycleCloseout.failure = {
+    kind: "runtime_blocked",
+    detail: failureDetail,
+    retryable: false,
+  };
+  const lifecycleCloseoutRef = canonicalLaneLifecyclePath(lifecycleCloseout, 2);
+  const unitDispositions = dispatchTasks.map((task) => {
+    const unitId = String(task.unit_id);
+    const dispatchTaskRef = `${dispatchRef}#${String(task.task_id)}`;
+    return unitId === failedUnitId
+      ? {
+          unit_id: unitId,
+          dispatch_task_ref: dispatchTaskRef,
+          dispatch_task_hash: dispatchHash,
+          lifecycle_ref: lifecycleCloseoutRef,
+          lifecycle_hash: canonicalContentHash(lifecycleCloseout),
+          disposition: "runtime_failed",
+        }
+      : {
+          unit_id: unitId,
+          dispatch_task_ref: dispatchTaskRef,
+          dispatch_task_hash: dispatchHash,
+          lifecycle_ref: null,
+          lifecycle_hash: null,
+          disposition: "not_started",
+        };
+  });
+  const notStartedUnitIds = dispatchTasks
+    .map((task) => String(task.unit_id))
+    .filter((unitId) => unitId !== failedUnitId);
+  const closeout: Record<string, unknown> = {
+    schema_version: "startup_opportunity.execution_stage_closeout.v1",
+    closeout_id: "stage_closeout_pending",
+    revision: 1,
+    run_id: state.runId,
+    mode: "opportunity_discovery",
+    research_plan_ref: G21_PLAN_REF,
+    execution_plan_ref: "plans/research-execution.r1.json",
+    execution_plan_hash: canonicalContentHash(execution),
+    dispatch_ref: dispatchRef,
+    dispatch_hash: dispatchHash,
+    stage_id: "stage_generation",
+    stage_kind: "discovery_generation",
+    stage_index: 0,
+    stage_state: "failed",
+    failure: {
+      kind: "runtime_blocked",
+      detail: failureDetail,
+      retryable: false,
+    },
+    started_at: batch.dispatch_requested_at,
+    ended_at: "2026-07-31T16:01:08Z",
+    started_unit_ids: [failedUnitId],
+    completed_unit_ids: [],
+    failed_unit_ids: [failedUnitId],
+    incomplete_unit_ids: dispatchTasks.map((task) => String(task.unit_id)).sort(),
+    not_started_unit_ids: notStartedUnitIds,
+    unit_dispositions: unitDispositions,
+    basis_refs: [decisionPath, gapRef, dispatchRef, lifecycleCloseoutRef],
+    limitations: [
+      "SYNTHETIC stage closeout fixture preserves research conclusions while closing execution.",
+    ],
+  };
+  closeout.closeout_id = canonicalExecutionStageCloseoutId(closeout);
+  const closeoutPath = canonicalExecutionStageCloseoutPath(closeout);
+  const gap = {
+    schema_version: "startup_opportunity.gap_snapshot.discovery.plan.current",
+    snapshot_id: "gap_runtime_stage_closeout",
+    snapshot_cycle_key: canonicalContentHash({ run_id: state.runId, cycle: "stage_closeout" }),
+    run_id: state.runId,
+    based_on_plan_ref: G21_PLAN_REF,
+    based_on_plan_hash: canonicalContentHash(state.plan),
+    revision: 1,
+    parent_snapshot_ref: null,
+    created_at: "2026-07-31T16:01:07Z",
+    trigger_kind: "artifact_validation_failed",
+    trigger_event_ref: null,
+    phase: "discovery",
+    wave_id: "wave_discovery_synthetic",
+    gaps: [
+      {
+        gap_id: "gap_runtime_blocked_stage_closeout",
+        subject_ref: `${G21_PLAN_REF}#${failedUnitId}`,
+        gap_type: "runtime_blocked",
+        detection_mode: "deterministic",
+        decision_impact: ["execution_validity", "next_action"],
+        severity: "blocking",
+        basis_refs: [dispatchRef],
+        evidence_refs: [],
+        recommended_unit_types: [],
+        allowed_actions: ["record_runtime_failure"],
+        detail: "SYNTHETIC runtime blocker authority for stage closeout.",
+      },
+    ],
+    material_new_evidence_observed: false,
+    unresolved_decision_relevant_questions: [],
+    stop_signals: ["runtime_blocked"],
+  };
+  const decision = {
+    schema_version: "startup_opportunity.adaptation_decision.discovery.current",
+    adaptation_id: "adapt_runtime_stage_closeout",
+    run_id: state.runId,
+    based_on_plan_ref: G21_PLAN_REF,
+    trigger_gap_refs: [gapRef],
+    action: "record_runtime_failure",
+    reason,
+    expected_decision_impact: ["execution_validity"],
+    stop_condition: stopCondition,
+    requested_by: "main_agent",
+    created_at: "2026-07-31T16:01:08Z",
+  };
+  const entry = (artifactPath: string, document: Record<string, unknown>) => ({
+    path: artifactPath,
+    schemaVersion: String(document.schema_version),
+    document,
+    envelope: null,
+  });
+  const baseDocuments = [
+    entry(G21_PLAN_REF, state.plan),
+    entry("plans/research-execution.r1.json", execution),
+    entry(dispatchRef, batch),
+    ...tasks.map((task) => ({
+      path: task.artifact_path,
+      schemaVersion: task.artifact_type,
+      document: task.document,
+      envelope: task,
+    })),
+    entry(gapPath, gap),
+    entry(decisionPath, decision),
+    entry(lifecycleRootRef, lifecycleRoot),
+    entry(lifecycleCloseoutRef, lifecycleCloseout),
+    entry(closeoutPath, closeout),
+  ];
+  assert.deepEqual(
+    validateDeclarativeRuntimeContract(baseDocuments).map((issue) => issue.code),
+    [],
+  );
+
+  const duplicate = structuredClone(closeout);
+  (duplicate.unit_dispositions as Record<string, unknown>[]).push(
+    structuredClone(unitDispositions[0] as Record<string, unknown>),
+  );
+  assert.ok(
+    validateDeclarativeRuntimeContract([
+      ...baseDocuments.slice(0, -1),
+      entry(closeoutPath, duplicate),
+    ])
+      .map((issue) => issue.code)
+      .includes("runtime.stage_closeout_unit_coverage_invalid"),
+  );
+
+  const stale = structuredClone(closeout);
+  const staleDisposition = (stale.unit_dispositions as Record<string, unknown>[]).find(
+    (disposition) => disposition.unit_id === failedUnitId,
+  );
+  assert.ok(staleDisposition);
+  staleDisposition.lifecycle_ref = lifecycleRootRef;
+  staleDisposition.lifecycle_hash = canonicalContentHash(lifecycleRoot);
+  assert.ok(
+    validateDeclarativeRuntimeContract([...baseDocuments.slice(0, -1), entry(closeoutPath, stale)])
+      .map((issue) => issue.code)
+      .includes("runtime.stage_closeout_unit_disposition_invalid"),
+  );
+  assert.equal(failedTaskRef, `${dispatchRef}#${String(failedTask.task_id)}`);
 });
 
 test("public compiler rejects self-authored Discovery Execution staging authority without Task and Dispatch", async (t) => {
@@ -2818,6 +3020,7 @@ test("Dispatch launch recovery rejects raw bundle receipt without dedicated auth
       handoff_ready_at: null,
       formalization_validated_at: null,
       published_at: null,
+      ended_at: null,
     },
     failure: null,
     limitations: [
@@ -2941,6 +3144,7 @@ test("dispatch launch publisher rejects stale same-request-id conflicts before b
           handoff_ready_at: null,
           formalization_validated_at: null,
           published_at: null,
+          ended_at: null,
         },
         failure: null,
         limitations: [
@@ -3158,6 +3362,7 @@ test("dispatch launch publisher rejects overlapping intent-only bundle conflicts
           handoff_ready_at: null,
           formalization_validated_at: null,
           published_at: null,
+          ended_at: null,
         },
         failure: null,
         limitations: [
@@ -3315,8 +3520,10 @@ test("status derives retries from distinct execution attempts across the complet
       timestamps.handoff_ready_at = "2026-07-31T16:01:04Z";
       timestamps.formalization_validated_at = "2026-07-31T16:01:05Z";
       timestamps.published_at = "2026-07-31T16:01:06Z";
+      timestamps.ended_at = null;
       document.failure = null;
     } else {
+      timestamps.ended_at = `2026-07-31T16:01:${String(6 + ordinal).padStart(2, "0")}Z`;
       document.failure = {
         kind: failureKind,
         detail: `SYNTHETIC ${String(failureKind)} attempt failure.`,

@@ -119,7 +119,8 @@
         "evidence_recorded_at",
         "handoff_ready_at",
         "formalization_validated_at",
-        "published_at"
+        "published_at",
+        "ended_at"
       ],
       "properties": {
         "task_ready_at": {
@@ -169,6 +170,16 @@
           ]
         },
         "published_at": {
+          "anyOf": [
+            {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ended_at": {
           "anyOf": [
             {
               "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"

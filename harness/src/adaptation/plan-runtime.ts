@@ -1,6 +1,10 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { ArtifactStore, type FormalArtifactEnvelope } from "../artifact-store/artifact-store.js";
+import {
+  ArtifactStore,
+  type FormalArtifactEnvelope,
+  isPlanRuntimeOwnedCloseoutEnvelope,
+} from "../artifact-store/artifact-store.js";
 import { atomicReplace, publishTemp, writeSyncedTemp } from "../artifact-store/atomic-file.js";
 import {
   canonicalContentHash,
@@ -31,6 +35,11 @@ import {
 } from "../reporting/report-runtime.js";
 import { type JsonlStore, JsonlStore as RuntimeJsonlStore } from "../run-store/jsonl-store.js";
 import type { BeliefSummary, RunManifest } from "../run-store/run-store.js";
+import {
+  canonicalExecutionStageCloseoutId,
+  canonicalExecutionStageCloseoutPath,
+} from "../runtime/execution-stage-closeout-identity.js";
+import { canonicalLaneLifecyclePath } from "../runtime/lane-lifecycle-identity.js";
 import type {
   ArtifactValidator,
   DocumentBundle,
@@ -53,6 +62,7 @@ import {
   effectiveDocuments,
   isRecord,
   leafPlanningContexts,
+  statusOfUnit,
   unitEntries,
 } from "./contracts.js";
 import {
@@ -82,6 +92,8 @@ const TERMINAL_ACTIONS = new Set([
   "complete_research",
   "cancel_research",
 ]);
+
+const TERMINAL_LIFECYCLE_STATES = new Set(["published", "partial", "failed", "late_ignored"]);
 
 export function isTerminalAdaptationAction(action: string): boolean {
   return TERMINAL_ACTIONS.has(action);
@@ -209,6 +221,10 @@ interface PlanOperationReceipt {
   readonly result_assessment_plan_ref?: string;
   readonly result_assessment_plan_hash?: string | null;
   readonly candidate_bindings?: readonly PlanCandidateBinding[];
+  readonly applied_at: string;
+  readonly base_manifest: RunManifest;
+  readonly base_manifest_hash: string;
+  readonly control_envelope_bindings: readonly ControlEnvelopeBinding[];
   readonly control_envelopes: readonly FormalArtifactEnvelope[];
   readonly checkpoint_envelope: FormalArtifactEnvelope;
   readonly terminal_report_operation: PreparedTerminalReportOperation | null;
@@ -227,9 +243,17 @@ interface PlanCandidateBinding {
   readonly plan_revision: number;
 }
 
+interface ControlEnvelopeBinding {
+  readonly artifact_path: string;
+  readonly artifact_type: string;
+  readonly content_hash: string;
+  readonly envelope_hash: string;
+}
+
 export interface PlanOperationRecoveryResult {
   readonly completedOperationKeys: readonly string[];
   readonly pendingOperationKeys: readonly string[];
+  readonly pendingControlArtifactRefs: readonly string[];
   readonly candidateBoundOperationKeys: readonly string[];
   readonly historicalDiscoveryPlanBindings: readonly HistoricalDiscoveryPlanBinding[];
 }
@@ -330,6 +354,666 @@ function isUniqueSortedStringArray(values: readonly unknown[]): boolean {
   );
 }
 
+function controlEnvelopeBindings(
+  envelopes: readonly FormalArtifactEnvelope[],
+): readonly ControlEnvelopeBinding[] {
+  return envelopes
+    .map((envelope) => ({
+      artifact_path: envelope.artifact_path,
+      artifact_type: envelope.artifact_type,
+      content_hash: envelope.content_hash,
+      envelope_hash: canonicalContentHash(envelope),
+    }))
+    .sort((left, right) => left.artifact_path.localeCompare(right.artifact_path));
+}
+
+function strings(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function records(value: unknown): readonly Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function isRuntimeFailureCloseoutEnvelope(envelope: FormalArtifactEnvelope): boolean {
+  return isPlanRuntimeOwnedCloseoutEnvelope(envelope);
+}
+
+function nonRevisionControlEnvelopesAreAllowed(receipt: PlanOperationReceipt): boolean {
+  return (
+    receipt.control_envelopes.length === 0 ||
+    (receipt.manifest.status === "failed" &&
+      receipt.terminal_report_operation !== null &&
+      receipt.control_envelopes.every(isRuntimeFailureCloseoutEnvelope))
+  );
+}
+
+interface RuntimeFailureAuthority {
+  readonly decision: AdaptationInputDocument;
+  readonly decisionRef: string;
+  readonly gapRefs: readonly string[];
+  readonly basisRefs: readonly string[];
+  readonly detail: string;
+}
+
+interface StoredFormalEnvelope {
+  readonly path: string;
+  readonly envelope: FormalArtifactEnvelope;
+  readonly artifactType: string;
+  readonly document: Record<string, unknown>;
+  readonly createdAt: string;
+}
+
+interface StageUnitDisposition {
+  readonly unit_id: string;
+  readonly dispatch_task_ref: string;
+  readonly dispatch_task_hash: string;
+  readonly lifecycle_ref: string | null;
+  readonly lifecycle_hash: string | null;
+  readonly disposition:
+    | "completed"
+    | "runtime_failed"
+    | "failed"
+    | "partial"
+    | "late_ignored"
+    | "not_started";
+}
+
+function runtimeFailureAuthority(
+  decisions: readonly AdaptationInputDocument[],
+  documents: readonly EffectiveDocument[],
+): RuntimeFailureAuthority | null {
+  const runtimeDecisions = decisions.filter(
+    (decision) => decision.document.action === "record_runtime_failure",
+  );
+  if (runtimeDecisions.length === 0) return null;
+  const decision = runtimeDecisions[0];
+  if (decision === undefined || runtimeDecisions.length !== 1) {
+    throw new StoreError(
+      "apply.runtime_failure_authority_invalid",
+      "record_runtime_failure closeout requires one exact Adaptation Decision",
+    );
+  }
+  const byPath = new Map(documents.map((document) => [document.path, document]));
+  const triggerGapRefs = strings(decision.document.trigger_gap_refs);
+  const runtimeGapRefs = triggerGapRefs.filter((gapRef) => {
+    const [gapPath = "", gapId = ""] = gapRef.split("#", 2);
+    const snapshot = byPath.get(gapPath);
+    if (
+      snapshot === undefined ||
+      ![
+        "startup_opportunity.gap_snapshot.discovery.plan.current",
+        "startup_opportunity.gap_snapshot.discovery.readiness.current",
+        "startup_opportunity.gap_snapshot.assessment.current",
+      ].includes(snapshot.schemaVersion)
+    ) {
+      return false;
+    }
+    const gap = records(snapshot.document.gaps).find(
+      (candidate) => gapId.length === 0 || candidate.gap_id === gapId,
+    );
+    return gap?.gap_type === "runtime_blocked" && gap.severity === "blocking";
+  });
+  if (runtimeGapRefs.length === 0) {
+    throw new StoreError(
+      "apply.runtime_failure_authority_missing",
+      "record_runtime_failure closeout requires a blocking runtime_blocked Gap",
+    );
+  }
+  const detail = canonicalJson({
+    action: "record_runtime_failure",
+    decision_ref: decision.path,
+    gap_refs: uniqueSorted(runtimeGapRefs),
+    reason: String(decision.document.reason),
+    stop_condition:
+      typeof decision.document.stop_condition === "string"
+        ? decision.document.stop_condition
+        : null,
+  });
+  return {
+    decision,
+    decisionRef: decision.path,
+    gapRefs: uniqueSorted(runtimeGapRefs),
+    basisRefs: uniqueSorted([decision.path, ...runtimeGapRefs]),
+    detail,
+  };
+}
+
+async function authenticatedTrackedFormalEnvelopes(
+  runRoot: string,
+  runId: string,
+  manifest: RunManifest,
+  artifacts: ArtifactStore,
+): Promise<readonly StoredFormalEnvelope[]> {
+  const tracked = new Set(manifest.artifact_refs);
+  const ledger = await artifacts.publicationLedgerLocked(runRoot, runId);
+  const ledgerByPath = new Map(ledger.map((entry) => [entry.artifactPath, entry]));
+  const envelopes: StoredFormalEnvelope[] = [];
+  for (const artifactPath of [...tracked].sort()) {
+    const ledgerEntry = ledgerByPath.get(artifactPath);
+    if (
+      ledgerEntry === undefined ||
+      ledgerEntry.contentHash !== ledgerEntry.envelope.content_hash ||
+      ledgerEntry.envelope.artifact_path !== artifactPath ||
+      ledgerEntry.envelope.run_id !== runId ||
+      !isFormalArtifactEnvelope(ledgerEntry.envelope)
+    ) {
+      throw new StoreError(
+        "apply.runtime_failure_source_unauthenticated",
+        "runtime failure closeout sources must be current Manifest Artifacts with exact Store publication authority",
+        { artifactPath },
+      );
+    }
+    const stored = JSON.parse(
+      await readFile(await resolveRunPath(runRoot, artifactPath), "utf8"),
+    ) as unknown;
+    if (canonicalJson(stored) !== canonicalJson(ledgerEntry.envelope)) {
+      throw new StoreError(
+        "apply.runtime_failure_source_tampered",
+        "runtime failure closeout source bytes differ from their exact Store publication receipt",
+        { artifactPath },
+      );
+    }
+    await artifacts.validateStoredEnvelope(runRoot, runId, ledgerEntry.envelope);
+    envelopes.push({
+      path: artifactPath,
+      envelope: ledgerEntry.envelope,
+      artifactType: ledgerEntry.envelope.artifact_type,
+      document: ledgerEntry.envelope.document,
+      createdAt: ledgerEntry.envelope.created_at,
+    });
+  }
+  return envelopes;
+}
+
+function latestLifecycleEnvelopes(
+  envelopes: readonly StoredFormalEnvelope[],
+): readonly StoredFormalEnvelope[] {
+  const latest = new Map<string, StoredFormalEnvelope>();
+  for (const envelope of envelopes.filter(
+    (entry) => entry.artifactType === "startup_opportunity.lane_lifecycle.v1",
+  )) {
+    const lifecycleId = String(envelope.document.lifecycle_id ?? "");
+    const revision = Number(envelope.document.revision);
+    const previous = latest.get(lifecycleId);
+    if (
+      previous === undefined ||
+      revision > Number(previous.document.revision) ||
+      (revision === Number(previous.document.revision) &&
+        envelope.path.localeCompare(previous.path) > 0)
+    ) {
+      latest.set(lifecycleId, envelope);
+    }
+  }
+  return [...latest.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function runtimeFailureCurrentUnitIds(
+  manifest: RunManifest,
+  plan: Record<string, unknown>,
+): ReadonlySet<string> {
+  return new Set(
+    unitEntries(plan)
+      .map((entry) => String(entry.unit.unit_id))
+      .filter((unitId) => ["active", "pending"].includes(statusOfUnit(manifest, unitId))),
+  );
+}
+
+async function runtimeFailureLaneCloseoutEnvelopes(
+  runRoot: string,
+  runId: string,
+  manifest: RunManifest,
+  plan: Record<string, unknown>,
+  trackedEnvelopes: readonly StoredFormalEnvelope[],
+  authority: RuntimeFailureAuthority,
+  createdAt: string,
+  envelopeVersion: FormalArtifactEnvelope["schema_version"],
+  artifacts: ArtifactStore,
+): Promise<readonly FormalArtifactEnvelope[]> {
+  const currentUnitIds = runtimeFailureCurrentUnitIds(manifest, plan);
+  const closeouts: FormalArtifactEnvelope[] = [];
+  for (const lifecycle of latestLifecycleEnvelopes(trackedEnvelopes)) {
+    const unitId = String(lifecycle.document.unit_id ?? "");
+    if (
+      !currentUnitIds.has(unitId) ||
+      TERMINAL_LIFECYCLE_STATES.has(String(lifecycle.document.state))
+    ) {
+      continue;
+    }
+    await artifacts.validateStoredEnvelope(runRoot, runId, lifecycle.envelope);
+    const revision = Number(lifecycle.document.revision);
+    if (!Number.isInteger(revision) || revision < 1) {
+      throw new StoreError(
+        "apply.runtime_failure_lifecycle_invalid",
+        "runtime failure closeout requires a valid current lifecycle revision",
+        { lifecycleRef: lifecycle.path },
+      );
+    }
+    const nextDocument: Record<string, unknown> = structuredClone(lifecycle.document);
+    nextDocument.revision = revision + 1;
+    nextDocument.parent_lifecycle_ref = lifecycle.path;
+    nextDocument.state = "failed";
+    nextDocument.timestamps = {
+      ...(isRecord(lifecycle.document.timestamps) ? lifecycle.document.timestamps : {}),
+      ended_at: createdAt,
+    };
+    nextDocument.failure = {
+      kind: "runtime_blocked",
+      detail: authority.detail,
+      retryable: false,
+    };
+    nextDocument.limitations = uniqueSorted([
+      ...strings(lifecycle.document.limitations),
+      "Runtime blocker closed this execution attempt without changing research conclusions.",
+    ]);
+    const artifactPath = canonicalLaneLifecyclePath(nextDocument, Number(nextDocument.revision));
+    closeouts.push(
+      envelope(
+        runId,
+        artifactPath,
+        nextDocument,
+        "main_agent",
+        uniqueSorted([
+          lifecycle.path,
+          ...authority.basisRefs,
+          String(lifecycle.document.dispatch_batch_ref).split("#", 1)[0] ?? "",
+          String(lifecycle.document.task_ref).split("#", 1)[0] ?? "",
+          ...(typeof lifecycle.document.launch_registration_ref === "string"
+            ? [lifecycle.document.launch_registration_ref]
+            : []),
+        ]).filter((ref) => ref.length > 0),
+        createdAt,
+        envelopeVersion,
+      ),
+    );
+  }
+  return closeouts;
+}
+
+function closeoutPathKey(ref: unknown): string {
+  return typeof ref === "string" ? (ref.split("#", 1)[0] ?? ref) : "";
+}
+
+function lifecycleCloseoutRefsForDispatch(
+  dispatchPath: string,
+  lifecycleCloseouts: readonly FormalArtifactEnvelope[],
+): readonly string[] {
+  return lifecycleCloseouts
+    .filter(
+      (lifecycle) =>
+        closeoutPathKey(lifecycle.document.dispatch_batch_ref) === dispatchPath &&
+        lifecycle.artifact_type === "startup_opportunity.lane_lifecycle.v1",
+    )
+    .map((lifecycle) => lifecycle.artifact_path)
+    .sort();
+}
+
+function storedControlEnvelope(envelope: FormalArtifactEnvelope): StoredFormalEnvelope {
+  return {
+    path: envelope.artifact_path,
+    envelope,
+    artifactType: envelope.artifact_type,
+    document: envelope.document,
+    createdAt: envelope.created_at,
+  };
+}
+
+function compareLifecycleAttempts(left: StoredFormalEnvelope, right: StoredFormalEnvelope): number {
+  const attempt = Number(left.document.attempt) - Number(right.document.attempt);
+  if (attempt !== 0) return attempt;
+  const revision = Number(left.document.revision) - Number(right.document.revision);
+  if (revision !== 0) return revision;
+  return left.path.localeCompare(right.path);
+}
+
+function latestLifecycleForDispatchTask(
+  envelopes: readonly StoredFormalEnvelope[],
+  dispatchTaskRef: string,
+  unitId: string,
+): StoredFormalEnvelope | null {
+  return (
+    envelopes
+      .filter(
+        (entry) =>
+          entry.artifactType === "startup_opportunity.lane_lifecycle.v1" &&
+          entry.document.dispatch_batch_ref === dispatchTaskRef &&
+          entry.document.task_ref === dispatchTaskRef &&
+          entry.document.unit_id === unitId,
+      )
+      .sort(compareLifecycleAttempts)
+      .at(-1) ?? null
+  );
+}
+
+function lifecycleDisposition(
+  lifecycle: StoredFormalEnvelope | null,
+): "completed" | "runtime_failed" | "failed" | "partial" | "late_ignored" | null {
+  if (lifecycle === null) return null;
+  const state = String(lifecycle.document.state);
+  if (state === "published") return "completed";
+  if (state === "partial") return "partial";
+  if (state === "late_ignored") return "late_ignored";
+  if (state === "failed") {
+    const failure = isRecord(lifecycle.document.failure) ? lifecycle.document.failure : {};
+    return failure.kind === "runtime_blocked" ? "runtime_failed" : "failed";
+  }
+  return null;
+}
+
+function resultDisposition(
+  envelopes: readonly StoredFormalEnvelope[],
+  task: Record<string, unknown>,
+  unitId: string,
+): StageUnitDisposition["disposition"] | null {
+  const outputPath =
+    typeof task.allowed_output_path === "string"
+      ? task.allowed_output_path
+      : typeof task.submission_path === "string"
+        ? task.submission_path
+        : null;
+  const requiredSchema =
+    typeof task.required_artifact_schema === "string"
+      ? task.required_artifact_schema
+      : typeof task.submission_schema === "string"
+        ? task.submission_schema
+        : null;
+  if (outputPath === null || requiredSchema === null) return null;
+  const result = envelopes.find(
+    (entry) =>
+      entry.path === outputPath &&
+      entry.artifactType === requiredSchema &&
+      entry.document.unit_id === unitId,
+  );
+  if (result === undefined) return null;
+  const status = String(result.document.status ?? result.document.branch_status ?? "");
+  if (status === "failed") return "failed";
+  if (status === "partial") return "partial";
+  if (status === "late_ignored") return "late_ignored";
+  return "completed";
+}
+
+function manifestDisposition(
+  manifest: RunManifest,
+  unitId: string,
+): StageUnitDisposition["disposition"] | null {
+  const state = statusOfUnit(manifest, unitId);
+  if (state === "completed") return "completed";
+  if (state === "failed") return "failed";
+  return null;
+}
+
+function stageCloseoutAlreadyTracked(
+  executionRef: string,
+  dispatchRef: string,
+  stageId: string,
+  envelopes: readonly StoredFormalEnvelope[],
+): boolean {
+  return envelopes.some(
+    (entry) =>
+      entry.artifactType === "startup_opportunity.execution_stage_closeout.v1" &&
+      entry.document.execution_plan_ref === executionRef &&
+      entry.document.dispatch_ref === dispatchRef &&
+      entry.document.stage_id === stageId,
+  );
+}
+
+function stageAlreadyClosedByResearchArtifact(
+  executionRef: string,
+  stageId: string,
+  envelopes: readonly StoredFormalEnvelope[],
+): boolean {
+  return envelopes.some(
+    (entry) =>
+      (entry.artifactType === "startup_opportunity.discovery_stage_readiness.v1" &&
+        entry.document.execution_plan_ref === executionRef &&
+        entry.document.stage_id === stageId) ||
+      (entry.artifactType === "startup_opportunity.assessment_stage_gate.v1" &&
+        entry.document.execution_plan_ref === executionRef &&
+        entry.document.stage_id === stageId),
+  );
+}
+
+function runtimeFailureExecutionStageCloseout(
+  runId: string,
+  manifest: RunManifest,
+  execution: StoredFormalEnvelope,
+  dispatch: StoredFormalEnvelope,
+  stage: Record<string, unknown>,
+  stageIndex: number,
+  authority: RuntimeFailureAuthority,
+  basisRefs: readonly string[],
+  lifecyclePool: readonly StoredFormalEnvelope[],
+  currentUnitIds: ReadonlySet<string>,
+  createdAt: string,
+): { readonly path: string; readonly document: Record<string, unknown> } {
+  const stageId = String(stage.stage_id ?? "");
+  const stageKind = String(stage.stage_kind ?? "");
+  const dispatchRef = dispatch.path;
+  const dispatchHash = canonicalContentHash(dispatch.document);
+  const executionHash = canonicalContentHash(execution.document);
+  const stageTasks = [...records(dispatch.document.tasks)].sort((left, right) =>
+    String(left.unit_id).localeCompare(String(right.unit_id)),
+  );
+  if (stageTasks.length === 0) {
+    throw new StoreError(
+      "apply.runtime_failure_stage_binding_invalid",
+      "runtime failure stage closeout requires at least one Dispatch task",
+      { dispatchRef },
+    );
+  }
+  const dispositions: StageUnitDisposition[] = stageTasks.map((task) => {
+    const unitId = String(task.unit_id ?? "");
+    const taskId = String(task.task_id ?? "");
+    const dispatchTaskRef = `${dispatchRef}#${taskId}`;
+    const lifecycle = latestLifecycleForDispatchTask(lifecyclePool, dispatchTaskRef, unitId);
+    const lifecycleStateDisposition = lifecycleDisposition(lifecycle);
+    const resultStateDisposition = resultDisposition(lifecyclePool, task, unitId);
+    const disposition =
+      lifecycleStateDisposition ??
+      resultStateDisposition ??
+      manifestDisposition(manifest, unitId) ??
+      "not_started";
+    const bindsLifecycle =
+      lifecycle !== null &&
+      (lifecycleStateDisposition !== null ||
+        (disposition === "runtime_failed" && currentUnitIds.has(unitId)));
+    return {
+      unit_id: unitId,
+      dispatch_task_ref: dispatchTaskRef,
+      dispatch_task_hash: dispatchHash,
+      lifecycle_ref: bindsLifecycle ? lifecycle.path : null,
+      lifecycle_hash: bindsLifecycle ? canonicalContentHash(lifecycle.document) : null,
+      disposition,
+    };
+  });
+  const unexpectedOpen = dispositions.find((disposition) => {
+    if (disposition.lifecycle_ref === null) return false;
+    const lifecycle = lifecyclePool.find((entry) => entry.path === disposition.lifecycle_ref);
+    return (
+      lifecycle !== undefined &&
+      !TERMINAL_LIFECYCLE_STATES.has(String(lifecycle.document.state)) &&
+      currentUnitIds.has(String(disposition.unit_id))
+    );
+  });
+  if (unexpectedOpen !== undefined) {
+    throw new StoreError(
+      "apply.runtime_failure_lifecycle_closeout_missing",
+      "runtime failure stage closeout cannot leave a current Dispatch lifecycle open",
+      { unitId: unexpectedOpen.unit_id, lifecycleRef: unexpectedOpen.lifecycle_ref },
+    );
+  }
+  const completedUnitIds = dispositions
+    .filter((disposition) => disposition.disposition === "completed")
+    .map((disposition) => disposition.unit_id);
+  const failedUnitIds = dispositions
+    .filter((disposition) => ["runtime_failed", "failed"].includes(String(disposition.disposition)))
+    .map((disposition) => disposition.unit_id);
+  const notStartedUnitIds = dispositions
+    .filter((disposition) => disposition.disposition === "not_started")
+    .map((disposition) => disposition.unit_id);
+  const incompleteUnitIds = dispositions
+    .filter((disposition) => disposition.disposition !== "completed")
+    .map((disposition) => disposition.unit_id);
+  const startedUnitIds = dispositions
+    .filter(
+      (disposition) =>
+        disposition.lifecycle_ref !== null || disposition.disposition !== "not_started",
+    )
+    .map((disposition) => disposition.unit_id);
+  const startedAt = String(
+    dispatch.document.dispatch_requested_at ?? dispatch.document.requested_at ?? createdAt,
+  );
+  const document: Record<string, unknown> = {
+    schema_version: "startup_opportunity.execution_stage_closeout.v1",
+    closeout_id: "stage_closeout_pending",
+    revision: 1,
+    run_id: runId,
+    mode: manifest.mode,
+    research_plan_ref: manifest.current_plan_ref,
+    execution_plan_ref: execution.path,
+    execution_plan_hash: executionHash,
+    dispatch_ref: dispatchRef,
+    dispatch_hash: dispatchHash,
+    stage_id: stageId,
+    stage_kind: stageKind,
+    stage_index: stageIndex,
+    stage_state: "failed",
+    failure: {
+      kind: "runtime_blocked",
+      detail: authority.detail,
+      retryable: false,
+    },
+    started_at: startedAt,
+    ended_at: createdAt,
+    started_unit_ids: uniqueSorted(startedUnitIds),
+    completed_unit_ids: uniqueSorted(completedUnitIds),
+    failed_unit_ids: uniqueSorted(failedUnitIds),
+    incomplete_unit_ids: uniqueSorted(incompleteUnitIds),
+    not_started_unit_ids: uniqueSorted(notStartedUnitIds),
+    unit_dispositions: dispositions.sort((left, right) =>
+      String(left.unit_id).localeCompare(String(right.unit_id)),
+    ),
+    basis_refs: basisRefs,
+    limitations: [
+      "Runtime blocker closed this execution stage without changing research conclusions.",
+    ],
+  };
+  document.closeout_id = canonicalExecutionStageCloseoutId(document);
+  return {
+    path: canonicalExecutionStageCloseoutPath(document),
+    document,
+  };
+}
+
+async function runtimeFailureStageCloseoutEnvelopes(
+  runRoot: string,
+  runId: string,
+  manifest: RunManifest,
+  plan: Record<string, unknown>,
+  trackedEnvelopes: readonly StoredFormalEnvelope[],
+  lifecycleCloseouts: readonly FormalArtifactEnvelope[],
+  authority: RuntimeFailureAuthority,
+  createdAt: string,
+  envelopeVersion: FormalArtifactEnvelope["schema_version"],
+  artifacts: ArtifactStore,
+): Promise<readonly FormalArtifactEnvelope[]> {
+  const closeouts: FormalArtifactEnvelope[] = [];
+  const envelopesByPath = new Map(trackedEnvelopes.map((entry) => [entry.path, entry]));
+  const seenStages = new Set<string>();
+  const dispatchTypes = [
+    "startup_opportunity.dispatch_batch.discovery.current",
+    "startup_opportunity.dispatch_batch.assessment.current",
+  ];
+  const dispatches = trackedEnvelopes
+    .filter(
+      (entry) =>
+        dispatchTypes.includes(entry.artifactType) &&
+        entry.document.run_id === runId &&
+        entry.document.research_plan_ref === manifest.current_plan_ref,
+    )
+    .sort((left, right) => left.path.localeCompare(right.path));
+
+  for (const dispatch of dispatches) {
+    const executionRef = String(dispatch.document.execution_plan_ref ?? "");
+    const execution = envelopesByPath.get(executionRef);
+    const stageId = String(dispatch.document.stage_id ?? "");
+    const expectedExecutionType =
+      dispatch.artifactType === "startup_opportunity.dispatch_batch.assessment.current"
+        ? "startup_opportunity.research_execution_plan.assessment.current"
+        : "startup_opportunity.research_execution_plan.discovery.current";
+    if (execution === undefined || execution.artifactType !== expectedExecutionType) {
+      throw new StoreError(
+        "apply.runtime_failure_stage_binding_invalid",
+        "runtime failure closeout requires the current Dispatch execution plan",
+        { dispatchRef: dispatch.path, executionRef, expectedExecutionType },
+      );
+    }
+    const stages = records(execution.document.stages);
+    const stageIndex = stages.findIndex((candidate) => candidate.stage_id === stageId);
+    const stage = stageIndex < 0 ? undefined : stages[stageIndex];
+    if (stage === undefined) {
+      throw new StoreError(
+        "apply.runtime_failure_stage_binding_invalid",
+        "runtime failure closeout requires the Dispatch stage in the execution plan",
+        { dispatchRef: dispatch.path, executionRef, stageId },
+      );
+    }
+    const stageKey = `${executionRef}#${stageId}#${dispatch.path}`;
+    const currentUnitIds = runtimeFailureCurrentUnitIds(manifest, plan);
+    const lifecyclePool = [
+      ...trackedEnvelopes,
+      ...lifecycleCloseouts.map((closeout) => storedControlEnvelope(closeout)),
+    ];
+    if (
+      seenStages.has(stageKey) ||
+      stageCloseoutAlreadyTracked(executionRef, dispatch.path, stageId, trackedEnvelopes) ||
+      stageAlreadyClosedByResearchArtifact(executionRef, stageId, trackedEnvelopes)
+    ) {
+      continue;
+    }
+    seenStages.add(stageKey);
+    await artifacts.validateStoredEnvelope(runRoot, runId, dispatch.envelope);
+    await artifacts.validateStoredEnvelope(runRoot, runId, execution.envelope);
+    const lifecycleRefs = lifecycleCloseoutRefsForDispatch(dispatch.path, lifecycleCloseouts);
+    const basisRefs = uniqueSorted([...authority.basisRefs, dispatch.path, ...lifecycleRefs]);
+    const stageCloseout = runtimeFailureExecutionStageCloseout(
+      runId,
+      manifest,
+      execution,
+      dispatch,
+      stage,
+      stageIndex,
+      authority,
+      basisRefs,
+      lifecyclePool,
+      currentUnitIds,
+      createdAt,
+    );
+    closeouts.push(
+      envelope(
+        runId,
+        stageCloseout.path,
+        stageCloseout.document,
+        "harness",
+        uniqueSorted([
+          executionRef,
+          dispatch.path,
+          ...basisRefs,
+          ...(manifest.mode === "concept_evidence_assessment" &&
+          typeof execution.document.concept_hypothesis_ref === "string"
+            ? [execution.document.concept_hypothesis_ref]
+            : []),
+        ]),
+        createdAt,
+        envelopeVersion,
+      ),
+    );
+  }
+  return closeouts;
+}
+
 function manifestSetsAreDisjoint(manifest: RunManifest): boolean {
   for (const fields of [
     [
@@ -363,6 +1047,54 @@ function manifestSetsAreDisjoint(manifest: RunManifest): boolean {
     }
   }
   return true;
+}
+
+function manifestMatchesExactBase(left: Record<string, unknown>, right: RunManifest): boolean {
+  return (
+    canonicalJson(left) === canonicalJson(right) &&
+    canonicalContentHash(left) === canonicalContentHash(right)
+  );
+}
+
+function assertSuppliedManifestMatchesCurrent(
+  suppliedManifest: EffectiveDocument,
+  manifest: RunManifest,
+): void {
+  const suppliedManifestHash = canonicalContentHash(suppliedManifest.document);
+  const currentManifestHash = canonicalContentHash(manifest);
+  if (
+    canonicalJson(suppliedManifest.document) !== canonicalJson(manifest) ||
+    suppliedManifestHash !== currentManifestHash
+  ) {
+    throw new StoreError(
+      "apply.stale_input_bundle",
+      "adaptation bundle does not bind the exact on-disk current Manifest for this Plan operation",
+      {
+        expected: currentManifestHash,
+        actual: suppliedManifestHash,
+      },
+    );
+  }
+}
+
+function suppliedManifestAuthenticatesReceipt(
+  suppliedManifest: EffectiveDocument | undefined,
+  manifest: RunManifest,
+  receipt: PlanOperationReceipt,
+): boolean {
+  if (
+    suppliedManifest?.schemaVersion !== "startup_opportunity.run_manifest.v1" ||
+    suppliedManifest.document.run_id !== receipt.run_id
+  ) {
+    return false;
+  }
+  const suppliedManifestHash = canonicalContentHash(suppliedManifest.document);
+  return (
+    (canonicalJson(suppliedManifest.document) === canonicalJson(receipt.base_manifest) &&
+      suppliedManifestHash === receipt.base_manifest_hash) ||
+    (canonicalJson(suppliedManifest.document) === canonicalJson(manifest) &&
+      suppliedManifestHash === canonicalContentHash(manifest))
+  );
 }
 
 function assertFault(boundary: PlanApplyFaultBoundary, requested?: PlanApplyFaultBoundary): void {
@@ -434,6 +1166,10 @@ function validateReceipt(value: unknown, filename: string, runId: string): PlanO
     "revision_created",
     "result_plan_ref",
     "result_plan_hash",
+    "applied_at",
+    "base_manifest",
+    "base_manifest_hash",
+    "control_envelope_bindings",
     "control_envelopes",
     "checkpoint_envelope",
     "terminal_report_operation",
@@ -466,6 +1202,10 @@ function validateReceipt(value: unknown, filename: string, runId: string): PlanO
     !Array.isArray(value.adaptation_hashes) ||
     typeof value.revision_created !== "boolean" ||
     typeof value.result_plan_ref !== "string" ||
+    typeof value.applied_at !== "string" ||
+    !isRecord(value.base_manifest) ||
+    !isSha256(value.base_manifest_hash) ||
+    !Array.isArray(value.control_envelope_bindings) ||
     !Array.isArray(value.control_envelopes) ||
     !isRecord(value.checkpoint_envelope) ||
     (value.terminal_report_operation !== null && !isRecord(value.terminal_report_operation)) ||
@@ -481,6 +1221,7 @@ function validateReceipt(value: unknown, filename: string, runId: string): PlanO
   const receipt = value as unknown as PlanOperationReceipt;
   const planOperationKey = operationKey("apply_plan_revision", {
     parent_plan_hash: receipt.base_plan_hash,
+    base_manifest_hash: receipt.base_manifest_hash,
     adaptation_refs: uniqueSorted(
       receipt.adaptation_refs.filter((ref): ref is string => typeof ref === "string"),
     ),
@@ -501,6 +1242,13 @@ function validateReceipt(value: unknown, filename: string, runId: string): PlanO
     receipt.adaptation_refs.length !== receipt.adaptation_hashes.length ||
     !isUniqueSortedStringArray(receipt.adaptation_refs) ||
     receipt.adaptation_hashes.some((hash) => !isSha256(hash)) ||
+    !Number.isFinite(Date.parse(receipt.applied_at)) ||
+    receipt.base_manifest.run_id !== runId ||
+    receipt.base_manifest.current_plan_ref !== receipt.base_plan_ref ||
+    canonicalContentHash(receipt.base_manifest) !== receipt.base_manifest_hash ||
+    !manifestSetsAreDisjoint(receipt.base_manifest) ||
+    canonicalJson(receipt.control_envelope_bindings) !==
+      canonicalJson(controlEnvelopeBindings(receipt.control_envelopes)) ||
     receipt.manifest.run_id !== runId ||
     receipt.manifest.current_plan_ref !== receipt.result_plan_ref ||
     !receipt.adaptation_refs.every((ref) =>
@@ -557,6 +1305,7 @@ function validateReceiptDocuments(
   artifacts: ArtifactStore,
 ): void {
   const manifestValidation = validator.validateDocument(receipt.manifest, "manifest.json");
+  const baseManifestValidation = validator.validateDocument(receipt.base_manifest, "manifest.json");
   const checkpoint = receipt.checkpoint_envelope;
   const checkpointDocument = checkpoint.document;
   const controlPaths = receipt.control_envelopes.map((item) => item.artifact_path);
@@ -596,6 +1345,7 @@ function validateReceiptDocuments(
   }
   if (
     !manifestValidation.valid ||
+    !baseManifestValidation.valid ||
     !eventsValid ||
     new Set(controlPaths).size !== controlPaths.length ||
     checkpoint.schema_version !== expectedEnvelopeVersion ||
@@ -638,7 +1388,7 @@ function validateReceiptDocuments(
           (resultAssessmentPlanEnvelope?.artifact_type !==
             "startup_opportunity.concept_evidence_assessment_plan.v1" ||
             resultAssessmentPlanEnvelope.content_hash !== receipt.result_assessment_plan_hash))
-      : receipt.control_envelopes.length !== 0)
+      : !nonRevisionControlEnvelopesAreAllowed(receipt))
   ) {
     throw new StoreError(
       "recovery.invalid_plan_operation",
@@ -656,7 +1406,19 @@ async function validateReceiptSources(
 ): Promise<void> {
   try {
     const terminalActions: string[] = [];
+    const sourceDocuments = new Map<string, EffectiveDocument>();
+    const decisions: AdaptationInputDocument[] = [];
+    const addSourceDocument = (documentPath: string, document: Record<string, unknown>) => {
+      sourceDocuments.set(documentPath, {
+        path: documentPath,
+        schemaVersion: String(document.schema_version ?? ""),
+        document,
+        envelope: null,
+      });
+    };
+    addSourceDocument("manifest.json", receipt.base_manifest as unknown as Record<string, unknown>);
     const basePlan = await storedEffectiveDocument(runRoot, receipt.base_plan_ref);
+    addSourceDocument(receipt.base_plan_ref, basePlan);
     if (canonicalContentHash(basePlan) !== receipt.base_plan_hash) {
       throw new Error("base hash mismatch");
     }
@@ -692,6 +1454,8 @@ async function validateReceiptSources(
     }
     for (const [index, adaptationRef] of receipt.adaptation_refs.entries()) {
       const decision = await storedEffectiveDocument(runRoot, adaptationRef);
+      addSourceDocument(adaptationRef, decision);
+      decisions.push({ path: adaptationRef, document: decision });
       if (canonicalContentHash(decision) !== receipt.adaptation_hashes[index]) {
         throw new Error("adaptation hash mismatch");
       }
@@ -725,6 +1489,7 @@ async function validateReceiptSources(
           }
           const [gapPath = "", gapId] = gapRef.split("#", 2);
           const gap = await storedEffectiveDocument(runRoot, gapPath);
+          addSourceDocument(gapPath, gap);
           if (receipt.schema_version === ASSESSMENT_PLAN_OPERATION_VERSION) {
             const gapEntry = Array.isArray(gap.gaps)
               ? gap.gaps.find((candidate) => isRecord(candidate) && candidate.gap_id === gapId)
@@ -783,11 +1548,59 @@ async function validateReceiptSources(
     ) {
       throw new Error("terminal Adaptation action mismatch");
     }
-  } catch (_error) {
+    if (terminalActions[0] === "record_runtime_failure") {
+      const authority = runtimeFailureAuthority(decisions, [...sourceDocuments.values()]);
+      if (authority === null) {
+        throw new Error("runtime failure authority missing");
+      }
+      const trackedEnvelopes = await authenticatedTrackedFormalEnvelopes(
+        runRoot,
+        receipt.run_id,
+        receipt.base_manifest,
+        artifacts,
+      );
+      const lifecycleCloseouts = await runtimeFailureLaneCloseoutEnvelopes(
+        runRoot,
+        receipt.run_id,
+        receipt.base_manifest,
+        basePlan,
+        trackedEnvelopes,
+        authority,
+        receipt.applied_at,
+        "startup_opportunity.artifact_envelope.current",
+        artifacts,
+      );
+      const stageCloseouts = await runtimeFailureStageCloseoutEnvelopes(
+        runRoot,
+        receipt.run_id,
+        receipt.base_manifest,
+        basePlan,
+        trackedEnvelopes,
+        lifecycleCloseouts,
+        authority,
+        receipt.applied_at,
+        "startup_opportunity.artifact_envelope.current",
+        artifacts,
+      );
+      const expectedCloseouts = [...lifecycleCloseouts, ...stageCloseouts];
+      const actualCloseouts = receipt.control_envelopes.filter(isRuntimeFailureCloseoutEnvelope);
+      if (
+        canonicalJson(actualCloseouts) !== canonicalJson(expectedCloseouts) ||
+        receipt.control_envelopes.some(
+          (controlEnvelope) => !isRuntimeFailureCloseoutEnvelope(controlEnvelope),
+        )
+      ) {
+        throw new Error("runtime failure closeout drift");
+      }
+    }
+  } catch (error) {
     throw new StoreError(
       "recovery.invalid_plan_operation",
       "Plan operation receipt source hashes do not match immutable artifacts",
-      { operationKey: receipt.operation_key },
+      {
+        operationKey: receipt.operation_key,
+        cause: error instanceof Error ? error.message : String(error),
+      },
     );
   }
 }
@@ -1526,6 +2339,11 @@ async function completeOperation(
   let changed = false;
   let terminalReport: BuildReportResult | null = null;
   const current = await readManifest(runRoot, validator);
+  const currentManifestHash = canonicalContentHash(current);
+  const currentMatchesReceiptBase =
+    canonicalJson(current) === canonicalJson(receipt.base_manifest) &&
+    currentManifestHash === receipt.base_manifest_hash;
+  const currentMatchesReceiptResult = canonicalJson(current) === canonicalJson(receipt.manifest);
   if (
     current.current_plan_ref !== receipt.base_plan_ref &&
     current.current_plan_ref !== receipt.result_plan_ref
@@ -1535,8 +2353,42 @@ async function completeOperation(
       actual: current.current_plan_ref,
     });
   }
+  const publishControlEnvelopes = async (): Promise<boolean> => {
+    if (receipt.control_envelopes.length > 1) {
+      const publishControlBundle = receipt.control_envelopes.every(isRuntimeFailureCloseoutEnvelope)
+        ? artifacts.publishPlanRuntimeCloseoutBundleLocked.bind(artifacts)
+        : artifacts.publishBundleLocked.bind(artifacts);
+      return (
+        (
+          await publishControlBundle(
+            runRoot,
+            {
+              runId: receipt.run_id,
+              envelopes: receipt.control_envelopes,
+            },
+            {
+              historicalDiscoveryPlanBindings: historicalDiscoveryPlanBindings(receipt),
+            },
+          )
+        ).status === "published"
+      );
+    }
+    const controlEnvelope = receipt.control_envelopes[0];
+    if (controlEnvelope === undefined) return false;
+    const publishControl = isRuntimeFailureCloseoutEnvelope(controlEnvelope)
+      ? artifacts.publishPlanRuntimeCloseoutLocked.bind(artifacts)
+      : artifacts.publishLocked.bind(artifacts);
+    return (
+      (
+        await publishControl(runRoot, {
+          runId: receipt.run_id,
+          envelope: controlEnvelope,
+        })
+      ).status === "published"
+    );
+  };
 
-  if (canonicalJson(current) === canonicalJson(receipt.manifest)) {
+  if (currentMatchesReceiptResult) {
     await validateStoredControlEnvelopes(runRoot, receipt, artifacts);
     assertFault("after_control_artifacts", faultAt);
     if (receipt.terminal_report_operation !== null) {
@@ -1577,40 +2429,37 @@ async function completeOperation(
     };
   }
 
+  if (current.current_plan_ref === receipt.base_plan_ref && !currentMatchesReceiptBase) {
+    throw new StoreError(
+      "apply.base_manifest_conflict",
+      "current Manifest differs from the exact receipt-authenticated base Manifest before CAS",
+      {
+        operationKey: receipt.operation_key,
+        expected: receipt.base_manifest_hash,
+        actual: currentManifestHash,
+      },
+    );
+  }
+
   if (current.current_plan_ref !== receipt.base_plan_ref) {
     throw new StoreError(
       "apply.result_manifest_conflict",
       "current plan matches the result but manifest content differs from the operation receipt",
     );
   }
-  if (receipt.control_envelopes.length > 1) {
-    if (
-      (
-        await artifacts.publishBundleLocked(
-          runRoot,
-          {
-            runId: receipt.run_id,
-            envelopes: receipt.control_envelopes,
-          },
-          {
-            historicalDiscoveryPlanBindings: historicalDiscoveryPlanBindings(receipt),
-          },
-        )
-      ).status === "published"
-    ) {
-      changed = true;
-    }
-  } else if (receipt.control_envelopes[0] !== undefined) {
-    if (
-      (
-        await artifacts.publishLocked(runRoot, {
-          runId: receipt.run_id,
-          envelope: receipt.control_envelopes[0],
-        })
-      ).status === "published"
-    ) {
-      changed = true;
-    }
+  if (!currentMatchesReceiptBase) {
+    throw new StoreError(
+      "apply.base_manifest_conflict",
+      "Plan operation cannot publish closeout artifacts from a mutated base Manifest",
+      {
+        operationKey: receipt.operation_key,
+        expected: receipt.base_manifest_hash,
+        actual: currentManifestHash,
+      },
+    );
+  }
+  if (await publishControlEnvelopes()) {
+    changed = true;
   }
   assertFault("after_control_artifacts", faultAt);
   if (receipt.terminal_report_operation !== null) {
@@ -1874,7 +2723,7 @@ export class PlanRevisionRuntime {
   private async prepareOperationLocked(
     runRoot: string,
     input: ApplyPlanRevisionInput,
-    options: {
+    _options: {
       readonly allowExistingReceipt: boolean;
       readonly allowPendingRecovery: boolean;
     },
@@ -1888,7 +2737,7 @@ export class PlanRevisionRuntime {
       this.validator,
       this.artifacts,
       this.logs,
-      options.allowPendingRecovery && input.recoverPlanOperations !== false,
+      false,
     );
     const manifest = await readManifest(runRoot, this.validator);
     if (
@@ -1989,8 +2838,77 @@ export class PlanRevisionRuntime {
         "adaptation bundle is missing its exact base assessment plan",
       );
     }
+    const suppliedManifest = bundleDocuments.find((document) => document.path === "manifest.json");
+    if (input.operationKey !== undefined) {
+      try {
+        const filename = await resolveRunPath(runRoot, receiptPath(input.operationKey), {
+          createParents: true,
+        });
+        const exactReceipt = validateReceipt(
+          JSON.parse(await readFile(filename, "utf8")) as unknown,
+          path.basename(filename),
+          input.runId,
+        );
+        validateReceiptDocuments(exactReceipt, this.validator, this.artifacts);
+        await validateReceiptSources(runRoot, exactReceipt, this.logs, this.artifacts);
+        const selectedDecisionHashes = selectedDecisions.map((decision) =>
+          canonicalContentHash(decision.document),
+        );
+        const terminalRequestMatches =
+          (input.terminalReportEnvelope === undefined) ===
+            (exactReceipt.terminal_report_operation === null) &&
+          (input.terminalReportEnvelope === undefined ||
+            canonicalJson(input.terminalReportEnvelope) ===
+              canonicalJson(exactReceipt.terminal_report_operation?.request_envelope));
+        if (
+          exactReceipt.base_plan_ref === basePlanRef &&
+          exactReceipt.base_plan_hash === canonicalContentHash(suppliedPlan.document) &&
+          exactReceipt.schema_version ===
+            (assessmentAdaptation
+              ? ASSESSMENT_PLAN_OPERATION_VERSION
+              : DISCOVERY_PLAN_OPERATION_VERSION) &&
+          (!assessmentAdaptation ||
+            (exactReceipt.schema_version === ASSESSMENT_PLAN_OPERATION_VERSION &&
+              exactReceipt.base_assessment_plan_ref === baseAssessmentPlanRef &&
+              exactReceipt.base_assessment_plan_hash ===
+                canonicalContentHash(suppliedAssessmentPlan?.document ?? {}))) &&
+          canonicalJson(exactReceipt.adaptation_refs) === canonicalJson(selectedRefs) &&
+          canonicalJson(exactReceipt.adaptation_hashes) === canonicalJson(selectedDecisionHashes) &&
+          terminalRequestMatches &&
+          suppliedManifestAuthenticatesReceipt(suppliedManifest, manifest, exactReceipt) &&
+          (manifest.current_plan_ref === exactReceipt.result_plan_ref ||
+            (manifest.current_plan_ref === exactReceipt.base_plan_ref &&
+              manifestMatchesExactBase(manifest, exactReceipt.base_manifest)))
+        ) {
+          return { receipt: exactReceipt, existingReceipt: exactReceipt };
+        }
+        throw new StoreError(
+          "write.operation_conflict",
+          "existing Plan operation receipt differs from the requested exact replay",
+          { operationKey: input.operationKey },
+        );
+      } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+          throw error;
+        }
+      }
+    }
+    if (
+      suppliedManifest?.schemaVersion !== "startup_opportunity.run_manifest.v1" ||
+      suppliedManifest.document.run_id !== manifest.run_id ||
+      suppliedManifest.document.current_plan_ref !== basePlanRef ||
+      suppliedManifest.document.plan_revision !== Number(suppliedPlan.document.revision)
+    ) {
+      throw new StoreError(
+        "apply.stale_input_bundle",
+        "adaptation bundle does not bind the exact base Manifest for this Plan operation",
+      );
+    }
+    const baseManifest = suppliedManifest.document as RunManifest;
+    const baseManifestHash = canonicalContentHash(baseManifest);
     const planOperationKey = operationKey("apply_plan_revision", {
       parent_plan_hash: canonicalContentHash(suppliedPlan.document),
+      base_manifest_hash: baseManifestHash,
       adaptation_refs: selectedRefs,
     });
     const expectedOperationKey =
@@ -2033,6 +2951,8 @@ export class PlanRevisionRuntime {
       if (
         existingReceipt.base_plan_ref !== basePlanRef ||
         existingReceipt.base_plan_hash !== canonicalContentHash(suppliedPlan.document) ||
+        existingReceipt.base_manifest_hash !== baseManifestHash ||
+        canonicalJson(existingReceipt.base_manifest) !== canonicalJson(baseManifest) ||
         existingReceipt.schema_version !==
           (assessmentAdaptation
             ? ASSESSMENT_PLAN_OPERATION_VERSION
@@ -2127,7 +3047,11 @@ export class PlanRevisionRuntime {
           "non-revision operation replay added a candidate bundle",
         );
       }
-      if (manifest.current_plan_ref === existingReceipt.result_plan_ref) {
+      if (
+        manifest.current_plan_ref === existingReceipt.result_plan_ref ||
+        (manifest.current_plan_ref === existingReceipt.base_plan_ref &&
+          manifestMatchesExactBase(manifest, existingReceipt.base_manifest))
+      ) {
         return { receipt: existingReceipt, existingReceipt };
       }
     } catch (error) {
@@ -2135,6 +3059,8 @@ export class PlanRevisionRuntime {
         throw error;
       }
     }
+
+    assertSuppliedManifestMatchesCurrent(suppliedManifest, manifest);
 
     await assertNoDivergentPendingOperation(
       runRoot,
@@ -2187,9 +3113,7 @@ export class PlanRevisionRuntime {
         },
       );
     }
-    const suppliedManifest = bundleDocuments.find((document) => document.path === "manifest.json");
     if (
-      suppliedManifest?.schemaVersion !== "startup_opportunity.run_manifest.v1" ||
       basePlanRef !== manifest.current_plan_ref ||
       suppliedManifest.document.run_id !== manifest.run_id ||
       suppliedManifest.document.current_plan_ref !== manifest.current_plan_ref ||
@@ -2441,6 +3365,14 @@ export class PlanRevisionRuntime {
     const controlEnvelopes: FormalArtifactEnvelope[] = [];
     const controlEnvelopeVersion: FormalArtifactEnvelope["schema_version"] =
       "startup_opportunity.artifact_envelope.current";
+    const runtimeFailure = runtimeFailureAuthority(
+      selectedDecisions,
+      effectiveDocuments(patchedBundle),
+    );
+    const trackedEnvelopes =
+      runtimeFailure === null
+        ? []
+        : await authenticatedTrackedFormalEnvelopes(runRoot, input.runId, manifest, this.artifacts);
     if (candidateContext !== null && candidateDocuments !== null && transformed.plan !== null) {
       const context = candidateContext;
       const aiCoverage = context.document.ai_mandatory_coverage;
@@ -2504,6 +3436,34 @@ export class PlanRevisionRuntime {
           String(context.document.created_at),
           controlEnvelopeVersion,
         ),
+      );
+    }
+    if (runtimeFailure !== null) {
+      const lifecycleCloseouts = await runtimeFailureLaneCloseoutEnvelopes(
+        runRoot,
+        input.runId,
+        manifest,
+        basePlan,
+        trackedEnvelopes,
+        runtimeFailure,
+        input.createdAt,
+        controlEnvelopeVersion,
+        this.artifacts,
+      );
+      controlEnvelopes.push(...lifecycleCloseouts);
+      controlEnvelopes.push(
+        ...(await runtimeFailureStageCloseoutEnvelopes(
+          runRoot,
+          input.runId,
+          manifest,
+          basePlan,
+          trackedEnvelopes,
+          lifecycleCloseouts,
+          runtimeFailure,
+          input.createdAt,
+          controlEnvelopeVersion,
+          this.artifacts,
+        )),
       );
     }
 
@@ -2600,6 +3560,10 @@ export class PlanRevisionRuntime {
           }
         : {}),
       ...(!assessmentAdaptation ? { candidate_bindings: candidateBindings } : {}),
+      applied_at: input.createdAt,
+      base_manifest: manifest,
+      base_manifest_hash: baseManifestHash,
+      control_envelope_bindings: controlEnvelopeBindings(controlEnvelopes),
       control_envelopes: controlEnvelopes,
       checkpoint_envelope: checkpointEnvelope,
       terminal_report_operation: terminalReportOperation,
@@ -2660,8 +3624,15 @@ export async function recoverPlanRevisionOperationsLocked(
   const directory = await resolveRunPath(runRoot, ".store/operations", { createParents: true });
   const completed: string[] = [];
   const pending: string[] = [];
+  const pendingControlArtifactRefs: string[] = [];
   const candidateBound: string[] = [];
   const historicalBindings: HistoricalDiscoveryPlanBinding[] = [];
+  const recordPending = (receipt: PlanOperationReceipt): void => {
+    pending.push(receipt.operation_key);
+    pendingControlArtifactRefs.push(
+      ...receipt.control_envelopes.map((envelope) => envelope.artifact_path),
+    );
+  };
   for (const filename of (await readdir(directory)).sort()) {
     if (!filename.startsWith("plan-revision-") || !filename.endsWith(".json")) {
       continue;
@@ -2688,14 +3659,28 @@ export async function recoverPlanRevisionOperationsLocked(
         continue;
       }
       if (!completePendingOperations) {
-        pending.push(receipt.operation_key);
+        recordPending(receipt);
         continue;
       }
       if ((await completeOperation(runRoot, receipt, artifacts, logs, validator)).changed) {
         completed.push(receipt.operation_key);
       }
     } else if (current.current_plan_ref === receipt.base_plan_ref) {
-      pending.push(receipt.operation_key);
+      if (
+        canonicalJson(current) !== canonicalJson(receipt.base_manifest) ||
+        canonicalContentHash(current) !== receipt.base_manifest_hash
+      ) {
+        throw new StoreError(
+          "recovery.invalid_plan_operation",
+          "pending Plan operation base Manifest differs from the exact on-disk current Manifest",
+          {
+            operationKey: receipt.operation_key,
+            expected: receipt.base_manifest_hash,
+            actual: canonicalContentHash(current),
+          },
+        );
+      }
+      recordPending(receipt);
     } else if (
       !(await historicalPlanOperationCompletionIsDurable(
         runRoot,
@@ -2715,6 +3700,7 @@ export async function recoverPlanRevisionOperationsLocked(
   return {
     completedOperationKeys: completed.sort(),
     pendingOperationKeys: pending.sort(),
+    pendingControlArtifactRefs: uniqueSorted(pendingControlArtifactRefs),
     candidateBoundOperationKeys: candidateBound.sort(),
     historicalDiscoveryPlanBindings: historicalBindings.sort((left, right) =>
       left.planRef.localeCompare(right.planRef),

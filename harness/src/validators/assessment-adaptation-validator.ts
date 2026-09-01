@@ -172,6 +172,7 @@ export function validateAssessmentAdaptationContract(
       Array.isArray(snapshot.document.gaps) && isRecord(snapshot.document.gaps[0])
         ? snapshot.document.gaps[0]
         : null;
+    const runtimeBlocked = gap?.gap_type === "runtime_blocked";
     const observed = Array.isArray(snapshot.document.observed_artifacts)
       ? snapshot.document.observed_artifacts.filter(isRecord).map(observedIdentity)
       : [];
@@ -229,8 +230,13 @@ export function validateAssessmentAdaptationContract(
         ),
       );
     }
+    const subjectSchemaValid =
+      subject?.schemaVersion === "startup_opportunity.concept_hypothesis.assessment.current" ||
+      (runtimeBlocked &&
+        subject?.schemaVersion ===
+          "startup_opportunity.concept_hypothesis.assessment_intake.current");
     if (
-      subject?.schemaVersion !== "startup_opportunity.concept_hypothesis.assessment.current" ||
+      !subjectSchemaValid ||
       subject.document.scope_frame_ref !== snapshot.document.scope_frame_ref ||
       scope?.schemaVersion !== "startup_opportunity.scope_frame.assessment.current" ||
       canonicalContentHash(scope.document) !== snapshot.document.scope_frame_hash ||
@@ -444,12 +450,28 @@ export function validateAssessmentAdaptationContract(
             : [];
       const actualStopSignals = stringArray(snapshot.document.stop_signals);
       if (
-        (!scopeReconciliation && gap.gap_type !== expectedGapType) ||
-        (!scopeReconciliation && gap.coverage_status !== expectedCoverageStatus) ||
-        (!scopeReconciliation && gap.followup_status !== expectedFollowupStatus) ||
-        (!scopeReconciliation && gap.recommended_unit_type !== expectedRecommendedUnit) ||
+        (!scopeReconciliation && !runtimeBlocked && gap.gap_type !== expectedGapType) ||
         (!scopeReconciliation &&
+          !runtimeBlocked &&
+          gap.coverage_status !== expectedCoverageStatus) ||
+        (!scopeReconciliation &&
+          !runtimeBlocked &&
+          gap.followup_status !== expectedFollowupStatus) ||
+        (!scopeReconciliation &&
+          !runtimeBlocked &&
+          gap.recommended_unit_type !== expectedRecommendedUnit) ||
+        (!scopeReconciliation &&
+          !runtimeBlocked &&
           !expectedStopSignals.every((signal) => actualStopSignals.includes(signal))) ||
+        (runtimeBlocked &&
+          (gap.coverage_status !== "insufficient" ||
+            gap.followup_status !== "stop" ||
+            gap.recommended_unit_type !== null ||
+            gap.severity !== "blocking" ||
+            gap.detection_mode !== "deterministic" ||
+            canonicalJson(stringArray(gap.decision_impact)) !==
+              canonicalJson(["execution_validity"]) ||
+            !actualStopSignals.includes("runtime_blocked"))) ||
         (scopeReconciliation &&
           (snapshot.document.trigger_kind !== "resume_reconciliation" ||
             gap.dimension_id !== "scope_alignment" ||

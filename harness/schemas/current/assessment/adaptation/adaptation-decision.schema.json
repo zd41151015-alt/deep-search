@@ -82,6 +82,7 @@
         "add_unit",
         "reconcile_scope",
         "stop_followup",
+        "record_runtime_failure",
         "complete_research",
         "cancel_research"
       ]
@@ -162,7 +163,7 @@
     },
     {
       "properties": {
-        "action": { "enum": ["complete_research", "cancel_research"] }
+        "action": { "enum": ["record_runtime_failure", "complete_research", "cancel_research"] }
       },
       "required": ["stop_condition"],
       "not": {

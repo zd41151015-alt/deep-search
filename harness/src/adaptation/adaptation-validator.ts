@@ -610,6 +610,19 @@ export class AdaptationPolicyValidator {
             )
           : undefined;
       if (isRecord(gap)) {
+        if (decision.document.action === "record_runtime_failure") {
+          const runtimeBlockingGap =
+            gap.severity === "blocking" && gap.gap_type === "runtime_blocked";
+          if (!runtimeBlockingGap) {
+            errors.push(
+              issue(
+                "adaptation.runtime_failure_basis_missing",
+                decision.path,
+                "record_runtime_failure requires a blocking runtime_blocked Gap",
+              ),
+            );
+          }
+        }
         const impacts = new Set(
           Array.isArray(decision.document.expected_decision_impact)
             ? decision.document.expected_decision_impact

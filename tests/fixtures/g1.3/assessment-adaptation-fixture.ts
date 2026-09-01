@@ -620,7 +620,7 @@ export function candidateBundle(
     effectiveBasePlan,
     effectiveManifest as never,
     [decision],
-    "2026-07-25T16:23:00Z",
+    "2026-07-25T16:25:00Z",
   );
   if (transformed.plan === null) {
     throw new Error("synthetic add_unit did not create a Research Plan revision");
@@ -630,7 +630,7 @@ export function candidateBundle(
     effectiveBaseAssessment,
     transformed.planPath,
     [decision],
-    "2026-07-25T16:23:00Z",
+    "2026-07-25T16:25:00Z",
   );
   if (assessment.plan === null) {
     throw new Error("synthetic add_unit did not create an assessment plan revision");
@@ -640,7 +640,7 @@ export function candidateBundle(
     revision: 2,
     parentRef: G13_CONTEXT_REF,
     stage: "candidate_revision",
-    createdAt: "2026-07-25T16:23:30Z",
+    createdAt: "2026-07-25T16:25:30Z",
   });
   return {
     ...adaptationBundle,
