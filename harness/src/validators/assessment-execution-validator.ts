@@ -1093,6 +1093,12 @@ function validateStageGate(
     records(result.document.dimension_results),
   );
   const decisions = records(gate.document.dimension_decisions);
+  const stageIndex = records(execution.document.stages).findIndex(
+    (candidate) => candidate.stage_id === stage.stage_id,
+  );
+  const laterUnits = records(execution.document.stages)
+    .slice(stageIndex + 1)
+    .flatMap((candidate) => records(candidate.lanes).map((lane) => String(lane.unit_id)));
   if (
     !sameStrings(
       decisions.map((item) => String(item.dimension_id)),
@@ -1154,12 +1160,6 @@ function validateStageGate(
       ),
     );
   }
-  const stageIndex = records(execution.document.stages).findIndex(
-    (candidate) => candidate.stage_id === stage.stage_id,
-  );
-  const laterUnits = records(execution.document.stages)
-    .slice(stageIndex + 1)
-    .flatMap((candidate) => records(candidate.lanes).map((lane) => String(lane.unit_id)));
   const expectedNotStarted = expectedOutcome === "continue" ? [] : laterUnits;
   if (!sameStrings(strings(gate.document.not_started_unit_ids), expectedNotStarted)) {
     errors.push(

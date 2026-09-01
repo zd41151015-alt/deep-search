@@ -16,7 +16,7 @@
       "content_hash": "sha256:15882c239c6f0611c50e248105b2a96742b82cd91e9bd812870668e2f8bccc97"
     }
   ],
-  "operation_identity": "canonical_parent_plan_hash_and_sorted_adaptation_refs.v1",
+  "operation_identity": "canonical_parent_plan_hash_base_manifest_hash_and_sorted_adaptation_refs.v1",
   "new_unit_placement": {
     "add_unit": "single_new_followup_wave_after_all_current_leaf_waves",
     "retry_unit": "same_wave_as_target",

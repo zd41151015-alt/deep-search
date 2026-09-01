@@ -8,8 +8,11 @@ import { fileURLToPath } from "node:url";
 import { sha256Hex } from "../harness/src/artifact-store/canonical.js";
 import {
   type ApplyPlanRevisionInput,
+  ArtifactStore,
   canonicalContentHash,
+  canonicalExecutionStageCloseoutPath,
   canonicalJson,
+  canonicalLaneLifecyclePath,
   coverageKey,
   createAdaptationAuthorRuntime,
   createAdaptationPolicyValidator,
@@ -17,6 +20,7 @@ import {
   createGapAnalyzer,
   createPlanRevisionRuntime,
   createPlanSemanticValidator,
+  DispatchLaunchRegistry,
   type DocumentBundle,
   deriveLaneSubmissionContract,
   EvidenceStore,
@@ -47,12 +51,32 @@ import {
 } from "./fixtures/g2.1/discovery-maps-fixture.js";
 import {
   fixtureEffective,
+  G22_DEMAND_EVALUATION_JUDGMENT,
+  G22_DEMAND_R2,
+  G22_EVALUATION_CLAIM,
+  G22_EVALUATION_LANE,
+  G22_EVALUATION_MANIFEST,
   G22_EVALUATION_TASK,
+  G22_FAN_IN,
+  G22_GENERATION_CLAIM,
+  G22_GENERATION_LANE,
+  G22_GENERATION_MANIFEST,
+  G22_JUDGMENT,
+  G22_PRE_CANDIDATE_RELATION,
+  G22_REJECTED_PRE_CANDIDATE,
+  G22_RETAINED_PRE_CANDIDATE,
+  G22_WATCHLIST_PRE_CANDIDATE,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
 import {
   createDiscoveryRuntimeFixture,
   runtimeEnvelope,
 } from "./fixtures/g2.2/discovery-runtime-fixture.js";
+import {
+  createDiscoverySynthesisFixture,
+  discoverySynthesisReadinessEnvelopes,
+  G23_READINESS,
+  G23_READINESS_GAP,
+} from "./fixtures/g2.3/discovery-synthesis-fixture.js";
 import {
   createConfirmedRun,
   initialPlanBundleEnvelopes,
@@ -72,9 +96,9 @@ const DECISION_SUBJECT_SNAPSHOT_REF = "artifacts/reporting/decision-subject-snap
 const SUBJECT_REF = "subject_001";
 const PRE_KILL_CANDIDATE_REF = "artifacts/discovery/candidates/candidate_demand.r1.json";
 const RETAINED_SHARED_CANDIDATE_REF = "artifacts/discovery/candidates/candidate_solution.r1.json";
-const PRE_KILL_APPLY_AT = "2026-07-28T12:08:00Z";
-const PRE_KILL_CONTEXT_AT = "2026-07-28T12:08:30Z";
-const PRE_KILL_CHECKPOINT_AT = "2026-07-28T12:09:00Z";
+const PRE_KILL_APPLY_AT = "2026-07-28T12:12:00Z";
+const PRE_KILL_CONTEXT_AT = "2026-07-28T12:12:30Z";
+const PRE_KILL_CHECKPOINT_AT = "2026-07-28T12:13:00Z";
 const CONFIRMED_SCOPE = {
   revision: 1,
   geography: "Synthetic",
@@ -930,6 +954,120 @@ function incompleteExecutionWaveEnvelopes(
   ];
 }
 
+function retargetIncompleteExecutionWave(
+  runId: string,
+  plan: Record<string, unknown>,
+  options: {
+    readonly unitId: string;
+    readonly executionRevision: number;
+    readonly parentExecutionPlanRef: string | null;
+    readonly dispatchPath: string;
+    readonly taskReadyAt: string;
+    readonly dispatchRequestedAt: string;
+  },
+): readonly FormalArtifactEnvelope[] {
+  const base = incompleteExecutionWaveEnvelopes(runId, plan);
+  const taskTemplate = structuredClone(base[2]?.document ?? {}) as Record<string, unknown>;
+  const executionTemplate = structuredClone(base[3]?.document ?? {}) as Record<string, unknown>;
+  const dispatchTemplate = structuredClone(base[4]?.document ?? {}) as Record<string, unknown>;
+  const plannedUnit = (plan.waves as Record<string, unknown>[])
+    .flatMap((wave) => wave.units as Record<string, unknown>[])
+    .find((candidate) => candidate.unit_id === options.unitId);
+  assert.ok(plannedUnit);
+  const wave = (plan.waves as Record<string, unknown>[]).find((candidate) =>
+    (candidate.units as Record<string, unknown>[]).some((unitEntry) => unitEntry === plannedUnit),
+  );
+  assert.ok(wave);
+  const taskId = `task_${options.unitId}`;
+  const taskPath = `tasks/discovery/${options.unitId}.attempt-1.json`;
+  const formalOutputPath = `artifacts/discovery/generation/${options.unitId}.r1.json`;
+  const commercialAuditOutputPath = `artifacts/research-audits/${options.unitId}.json`;
+  const laneSubmissionContract = deriveLaneSubmissionContract({
+    runId,
+    unitId: options.unitId,
+    taskId,
+    attempt: 1,
+    formalOutputPath,
+    formalArtifactSchema: "startup_opportunity.discovery_generation_result.v1",
+    commercialAuditOutputPath,
+  });
+  const executionPath = `plans/research-execution.r${String(options.executionRevision)}.json`;
+  const executionStages = executionTemplate.stages as Record<string, unknown>[];
+  const templateLanes = executionStages[0]?.lanes as Record<string, unknown>[] | undefined;
+  assert.ok(templateLanes?.[0]);
+  const lane: Record<string, unknown> = {
+    ...templateLanes[0],
+    unit_id: options.unitId,
+    submission_path: formalOutputPath,
+    commercial_audit_output_path: commercialAuditOutputPath,
+    lane_submission_contract: laneSubmissionContract,
+  };
+  const executionDocument = {
+    ...executionTemplate,
+    execution_plan_id: `execution_incomplete_${runId.replaceAll("-", "_")}_r${String(
+      options.executionRevision,
+    )}`,
+    revision: options.executionRevision,
+    parent_execution_plan_ref: options.parentExecutionPlanRef,
+    created_at: options.taskReadyAt,
+    stages: [
+      {
+        ...((executionTemplate.stages as Record<string, unknown>[])[0] ?? {}),
+        lanes: [lane],
+      },
+    ],
+  };
+  const taskDocument = {
+    ...taskTemplate,
+    task_id: taskId,
+    unit_id: options.unitId,
+    wave_id: wave.wave_id,
+    unit_type: plannedUnit.unit_type,
+    research_goal: plannedUnit.research_goal,
+    input_refs: plannedUnit.input_refs,
+    target_candidate_refs: [],
+    allowed_output_path: formalOutputPath,
+    lane_submission_contract: laneSubmissionContract,
+    dispatched_at: options.taskReadyAt,
+    commercial_research_requirements: {
+      ...(taskTemplate.commercial_research_requirements as Record<string, unknown>),
+      commercial_audit_output_path: commercialAuditOutputPath,
+      incumbent_response_assignment: structuredClone(lane.incumbent_response_assignment),
+    },
+  };
+  const dispatchTask = {
+    ...((dispatchTemplate.tasks as Record<string, unknown>[])[0] ?? {}),
+    task_id: taskId,
+    unit_id: options.unitId,
+    incumbent_response_assignment: structuredClone(lane.incumbent_response_assignment),
+    research_goal: plannedUnit.research_goal,
+    input_refs: plannedUnit.input_refs,
+    allowed_output_path: formalOutputPath,
+    commercial_audit_output_path: commercialAuditOutputPath,
+    lane_submission_contract: laneSubmissionContract,
+  };
+  const dispatchDocument = {
+    ...dispatchTemplate,
+    batch_id: `batch_incomplete_runtime_r${String(options.executionRevision)}`,
+    execution_plan_ref: executionPath,
+    dispatch_group: lane.dispatch_group,
+    task_ready_at: options.taskReadyAt,
+    dispatch_requested_at: options.dispatchRequestedAt,
+    tasks: [dispatchTask],
+  };
+  return [
+    {
+      ...formalEnvelope(runId, taskPath, taskDocument, [PLAN_REF, SCOPE_FRAME_REF]),
+      producer_role: "main_agent",
+    },
+    {
+      ...formalEnvelope(runId, executionPath, executionDocument, [PLAN_REF]),
+      producer_role: "main_agent",
+    },
+    formalEnvelope(runId, options.dispatchPath, dispatchDocument, [executionPath, taskPath]),
+  ];
+}
+
 function completionDecision(runId: string): Record<string, unknown> {
   return {
     schema_version: "startup_opportunity.adaptation_decision.discovery.current",
@@ -1498,6 +1636,20 @@ function discoveryRuntimeEnvelopes(
   });
 }
 
+function bundleEnvelopesByType(
+  bundleValue: DocumentBundle,
+  ...artifactTypes: readonly string[]
+): readonly FormalArtifactEnvelope[] {
+  return bundleValue.documents.flatMap((entry) => {
+    const document = entry.document;
+    return isRecord(document) &&
+      document.schema_version === "startup_opportunity.artifact_envelope.current" &&
+      artifactTypes.includes(String(document.artifact_type))
+      ? [document as unknown as FormalArtifactEnvelope]
+      : [];
+  });
+}
+
 function excludeFormalEvidence(
   terminal: Awaited<ReturnType<typeof prepareTerminalReporting>>,
   evidenceRefs: readonly string[],
@@ -1963,6 +2115,78 @@ async function publishRuntimeEnvelopesAsFormalStage(
   });
 }
 
+async function registerRuntimeLaunch(
+  setup: Awaited<ReturnType<typeof setupPersistedRun>>,
+  dispatchEnvelope: FormalArtifactEnvelope,
+  registeredAt: string,
+): Promise<void> {
+  const registry = new DispatchLaunchRegistry(setup.runsRoot, setup.validator, repositoryRoot);
+  const dispatchHash = canonicalContentHash(dispatchEnvelope.document);
+  const runId = String(setup.currentManifest.run_id);
+  const check = await registry.check(runId, dispatchEnvelope.artifact_path, dispatchHash);
+  await registry.register({
+    schema_version: "startup_opportunity.dispatch_launch_registration_request.v1",
+    request_id: `launch_${runId.replaceAll("-", "_")}`,
+    run_id: runId,
+    dispatch_ref: dispatchEnvelope.artifact_path,
+    dispatch_hash: dispatchHash,
+    registered_at: registeredAt,
+    registrations: check.checklist.map((item) => ({
+      unit_id: item.unit_id,
+      task_ref: item.task_ref,
+      task_id: item.task_id,
+      attempt: item.attempt,
+      execution_attempt_id: `external_${item.unit_id}_attempt_1`,
+    })),
+  });
+}
+
+async function publishTerminalLifecycleRevision(
+  setup: Awaited<ReturnType<typeof setupPersistedRun>>,
+  dispatchEnvelope: FormalArtifactEnvelope,
+): Promise<FormalArtifactEnvelope> {
+  const runId = String(setup.currentManifest.run_id);
+  const statusAfterLaunch = await setup.store.status(runId);
+  const lifecycleRoot = (
+    await Promise.all(
+      statusAfterLaunch.manifest.artifact_refs.map(async (artifactRef) => {
+        const envelope = JSON.parse(
+          await readFile(path.join(setup.runRoot, artifactRef), "utf8"),
+        ) as FormalArtifactEnvelope;
+        return envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1" &&
+          envelope.document.state === "agent_started"
+          ? envelope
+          : null;
+      }),
+    )
+  ).find((envelope): envelope is FormalArtifactEnvelope => envelope !== null);
+  assert.ok(lifecycleRoot);
+  const terminalLifecycleDocument = structuredClone(lifecycleRoot.document);
+  terminalLifecycleDocument.revision = 2;
+  terminalLifecycleDocument.parent_lifecycle_ref = lifecycleRoot.artifact_path;
+  terminalLifecycleDocument.state = "published";
+  terminalLifecycleDocument.failure = null;
+  terminalLifecycleDocument.timestamps = {
+    ...(terminalLifecycleDocument.timestamps as Record<string, unknown>),
+    evidence_recorded_at: "2026-07-24T12:07:26Z",
+    handoff_ready_at: "2026-07-24T12:07:27Z",
+    formalization_validated_at: "2026-07-24T12:07:28Z",
+    published_at: "2026-07-24T12:07:29Z",
+    ended_at: null,
+  };
+  const terminalLifecycle = {
+    ...formalEnvelope(
+      runId,
+      canonicalLaneLifecyclePath(terminalLifecycleDocument, 2),
+      terminalLifecycleDocument,
+      [lifecycleRoot.artifact_path, dispatchEnvelope.artifact_path],
+    ),
+    producer_role: "main_agent",
+  } as FormalArtifactEnvelope;
+  await setup.store.publishArtifact({ runId, envelope: terminalLifecycle });
+  return terminalLifecycle;
+}
+
 async function prepareTerminalReporting(
   setup: Awaited<ReturnType<typeof setupPersistedRun>>,
   runtimeFailure = false,
@@ -2404,6 +2628,286 @@ function currentDiscoveryAdaptationBundle(
   };
 }
 
+type DiscoverySynthesisRuntimeState = {
+  readonly root: string;
+  readonly runsRoot: string;
+  readonly runRoot: string;
+  readonly runId: string;
+  readonly store: RunStore;
+  readonly validator: Awaited<ReturnType<typeof createArtifactValidator>>;
+  readonly bundle: DocumentBundle;
+  readonly plan: Record<string, unknown>;
+};
+
+async function setupDiscoverySynthesisRuntimeRun(
+  contextTest: TestContext,
+  runId: string,
+): Promise<DiscoverySynthesisRuntimeState> {
+  const root = await mkdtemp(path.join(tmpdir(), "startup-opportunity-g04-g23-"));
+  contextTest.after(() => rm(root, { recursive: true, force: true }));
+  const runsRoot = path.join(root, "runs");
+  const runRoot = path.join(runsRoot, runId);
+  const validator = await createArtifactValidator(repositoryRoot);
+  const store = new RunStore(runsRoot, validator);
+  await createConfirmedRun(store, {
+    runId,
+    mode: "opportunity_discovery",
+    scopeProposal: sameSyntheticScopeProposal(),
+    createdAt: "2026-07-27T17:30:00Z",
+  });
+  const evidence = new EvidenceStore(runsRoot);
+  const generation = (
+    await evidence.record({
+      runId,
+      unitId: "unit_seed_independent_demand",
+      source: {
+        kind: "user_provided",
+        canonical_uri: `urn:startup-opportunity:user-provided:${runId}-generation`,
+      },
+      acquisitionGoal: "SYNTHETIC G2.3 generation substrate; not Evidence.",
+      rawContent: "SYNTHETIC G2.3 generation bytes; not Evidence.",
+      recordedAt: "2026-07-27T17:40:00Z",
+    })
+  ).record;
+  const evaluation = (
+    await evidence.record({
+      runId,
+      unitId: "unit_counterfactual",
+      source: {
+        kind: "user_provided",
+        canonical_uri: `urn:startup-opportunity:user-provided:${runId}-evaluation`,
+      },
+      acquisitionGoal: "SYNTHETIC G2.3 evaluation substrate; not Evidence.",
+      rawContent: "SYNTHETIC G2.3 evaluation bytes; not Evidence.",
+      recordedAt: "2026-07-27T17:41:00Z",
+    })
+  ).record;
+  const bundleValue = await createDiscoverySynthesisFixture(
+    runId,
+    { generation, evaluation },
+    [],
+    "general",
+    "en-US",
+  );
+  await publishInitialPlanBundle(
+    store,
+    runId,
+    G21_CORE_REFS.map((ref) => fixtureEnvelope(bundleValue, ref)),
+  );
+  await store.publishArtifactBundle({
+    runId,
+    envelopes: G21_MAP_REFS.map((ref) => fixtureEnvelope(bundleValue, ref)),
+  });
+  return {
+    root,
+    runsRoot,
+    runRoot,
+    runId,
+    store,
+    validator,
+    bundle: bundleValue,
+    plan: fixtureEffective(bundleValue, PLAN_REF),
+  };
+}
+
+async function publishRuntimeEnvelopesForState(
+  state: Pick<DiscoverySynthesisRuntimeState, "runsRoot" | "validator" | "runId">,
+  envelopes: readonly FormalArtifactEnvelope[],
+  requestId: string,
+): Promise<void> {
+  await createFormalStageRuntimeCompiler(state.runsRoot, state.validator, repositoryRoot).compile({
+    schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
+    request_id: requestId,
+    run_id: state.runId,
+    operation: "publish",
+    created_at: String(envelopes[0]?.created_at ?? "2026-07-27T18:00:00Z"),
+    artifacts: envelopes.map((envelope) => ({
+      artifact_type: envelope.artifact_type,
+      artifact_path: envelope.artifact_path,
+      producer_role: envelope.producer_role,
+      input_refs: envelope.input_refs,
+      document: envelope.document,
+    })),
+  });
+}
+
+async function publishDiscoverySynthesisReadiness(
+  state: DiscoverySynthesisRuntimeState,
+): Promise<void> {
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: bundleEnvelopesByType(
+      state.bundle,
+      "startup_opportunity.discovery_candidate.v1",
+    ).filter((candidate) => candidate.document.revision === 1),
+  });
+  const candidateRuntimeEnvelopes = discoveryWaveEnvelopes(
+    state.bundle,
+    state.runId,
+    "startup_opportunity.research_task.discovery_candidate.current",
+    1,
+    "candidate_runtime",
+  );
+  await publishRuntimeEnvelopesForState(
+    state,
+    candidateRuntimeEnvelopes,
+    "request_g0_4_g23_candidate_runtime_wave",
+  );
+  const dispatchEnvelope = candidateRuntimeEnvelopes.find(
+    (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(dispatchEnvelope);
+  const registry = new DispatchLaunchRegistry(state.runsRoot, state.validator, repositoryRoot);
+  const checklist = await registry.check(
+    state.runId,
+    dispatchEnvelope.artifact_path,
+    dispatchEnvelope.content_hash,
+  );
+  await registry.register({
+    schema_version: "startup_opportunity.dispatch_launch_registration_request.v1",
+    request_id: "launch_g0_4_g23_candidate_runtime",
+    run_id: state.runId,
+    dispatch_ref: dispatchEnvelope.artifact_path,
+    dispatch_hash: dispatchEnvelope.content_hash,
+    registered_at: "2026-07-27T18:02:00Z",
+    registrations: checklist.checklist.map((entry) => ({
+      unit_id: entry.unit_id,
+      task_ref: entry.task_ref,
+      task_id: entry.task_id,
+      attempt: entry.attempt,
+      execution_attempt_id: `exec_g0_4_g23_${entry.unit_id}`,
+    })),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: bundleEnvelopesByType(
+      state.bundle,
+      "startup_opportunity.evidence.discovery_candidate.current",
+      "startup_opportunity.claim.discovery_candidate.current",
+      "startup_opportunity.finding.discovery_candidate.current",
+      "startup_opportunity.insight.discovery_candidate.current",
+      "startup_opportunity.judgment_assessment.discovery_candidate.current",
+      "startup_opportunity.source_manifest.discovery_candidate.current",
+    ),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: bundleEnvelopesByType(state.bundle, "startup_opportunity.discovery_lane_result.v1"),
+  });
+  await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: runtimeEnvelope(state.bundle, G22_DEMAND_R2),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: [
+      G22_RETAINED_PRE_CANDIDATE,
+      G22_WATCHLIST_PRE_CANDIDATE,
+      G22_REJECTED_PRE_CANDIDATE,
+    ].map((artifactPath) => runtimeEnvelope(state.bundle, artifactPath)),
+  });
+  await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: runtimeEnvelope(state.bundle, G22_PRE_CANDIDATE_RELATION),
+  });
+  await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: runtimeEnvelope(state.bundle, G22_FAN_IN),
+  });
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: discoverySynthesisReadinessEnvelopes(state.bundle),
+  });
+}
+
+async function publishedBundleFromRun(
+  state: Pick<DiscoverySynthesisRuntimeState, "store" | "runRoot" | "runId">,
+): Promise<DocumentBundle> {
+  const loaded = await state.store.load(state.runId);
+  const documents: { path: string; document: Record<string, unknown> }[] = [
+    { path: "manifest.json", document: loaded.manifest as unknown as Record<string, unknown> },
+  ];
+  for (const artifactRef of [
+    ...new Set([
+      ...loaded.manifest.artifact_refs,
+      ...(loaded.manifest.checkpoint_ref === null ? [] : [loaded.manifest.checkpoint_ref]),
+    ]),
+  ].sort()) {
+    documents.push({
+      path: artifactRef,
+      document: JSON.parse(await readFile(path.join(state.runRoot, artifactRef), "utf8")) as Record<
+        string,
+        unknown
+      >,
+    });
+  }
+  const decisionRecords = (await readFile(path.join(state.runRoot, "decisions.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  return {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents,
+    exact_records: decisionRecords.map((record) => ({
+      ref: `decisions.jsonl#${String(record.decision_id)}`,
+      document: record,
+    })),
+  };
+}
+
+async function publishRuntimeFailureAuthorityForDiscovery(
+  state: DiscoverySynthesisRuntimeState,
+): Promise<DocumentBundle> {
+  const gap = gapSnapshot(state.runId, "runtime_blocked", PLAN_REF);
+  gap.snapshot_id = "gap_runtime_preserve_discovery";
+  gap.snapshot_cycle_key = canonicalContentHash({
+    run_id: state.runId,
+    base: PLAN_REF,
+    runtime_failure: true,
+  });
+  gap.created_at = "2026-07-27T20:12:00Z";
+  gap.phase = "discovery";
+  gap.wave_id = "wave_discovery_synthetic";
+  gap.observed_artifact_refs = [G23_READINESS, G23_READINESS_GAP, G22_FAN_IN];
+  const gapEntry = (gap.gaps as Record<string, unknown>[])[0];
+  assert.ok(gapEntry);
+  gapEntry.basis_refs = ["manifest.json", PLAN_REF, G23_READINESS, G23_READINESS_GAP, G22_FAN_IN];
+  gapEntry.evidence_refs = [];
+  gapEntry.decision_impact = ["execution_validity"];
+  gapEntry.recommended_unit_types = [];
+  gap.stop_signals = ["runtime_blocked"];
+  await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: formalEnvelope(
+      state.runId,
+      GAP_REF,
+      gap,
+      [PLAN_REF, G23_READINESS, G23_READINESS_GAP, G22_FAN_IN],
+      "startup_opportunity.artifact_envelope.current",
+    ),
+  });
+  const decision = runtimeFailureDecision(state.runId);
+  decision.created_at = "2026-07-27T20:13:00Z";
+  await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: formalEnvelope(state.runId, DECISION_REF, decision, [PLAN_REF, GAP_REF]),
+  });
+  const manifestPath = path.join(state.runRoot, "manifest.json");
+  const currentManifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  currentManifest.latest_gap_snapshot_ref = GAP_REF;
+  currentManifest.pending_adaptation_refs = [DECISION_REF];
+  currentManifest.validated_adaptation_refs = [];
+  currentManifest.rejected_adaptation_refs = [];
+  currentManifest.applied_adaptation_refs = [];
+  currentManifest.updated_at = "2026-07-27T20:13:30Z";
+  await writeFile(manifestPath, `${canonicalJson(currentManifest)}\n`);
+  return publishedBundleFromRun(state);
+}
+
 async function planApplyBoundaryState(runRoot: string) {
   return {
     manifest: await readFile(path.join(runRoot, "manifest.json"), "utf8"),
@@ -2421,6 +2925,103 @@ async function planReceiptFile(runRoot: string): Promise<string> {
   );
   assert.ok(receiptName);
   return path.join(operationDirectory, receiptName);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function refreshStoredEnvelope(envelope: Record<string, unknown>): void {
+  assert.ok(isRecord(envelope.document));
+  envelope.content_hash = canonicalContentHash(envelope.document);
+}
+
+function refreshPlanReceiptControlBindings(receipt: Record<string, unknown>): void {
+  const controlEnvelopes = Array.isArray(receipt.control_envelopes)
+    ? receipt.control_envelopes.filter(isRecord)
+    : [];
+  receipt.control_envelope_bindings = controlEnvelopes
+    .map((envelope) => ({
+      artifact_path: String(envelope.artifact_path),
+      artifact_type: String(envelope.artifact_type),
+      content_hash: String(envelope.content_hash),
+      envelope_hash: canonicalContentHash(envelope),
+    }))
+    .sort((left, right) => left.artifact_path.localeCompare(right.artifact_path));
+}
+
+async function tamperRuntimeFailurePlanReceipt(
+  runRoot: string,
+  mutate: (receipt: Record<string, unknown>, controlEnvelopes: Record<string, unknown>[]) => void,
+): Promise<void> {
+  const receiptPath = await planReceiptFile(runRoot);
+  const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
+  const controlEnvelopes = Array.isArray(receipt.control_envelopes)
+    ? receipt.control_envelopes.filter(isRecord)
+    : [];
+  mutate(receipt, controlEnvelopes);
+  for (const envelope of controlEnvelopes) {
+    if (isRecord(envelope.document)) {
+      refreshStoredEnvelope(envelope);
+    }
+  }
+  refreshPlanReceiptControlBindings(receipt);
+  await writeFile(receiptPath, `${canonicalJson(receipt)}\n`);
+}
+
+async function tamperPlanReceiptBaseManifestWithCoordinatedIdentity(
+  runRoot: string,
+  mutateBaseManifest: (baseManifest: Record<string, unknown>) => void,
+): Promise<void> {
+  const priorReceiptPath = await planReceiptFile(runRoot);
+  const receipt = JSON.parse(await readFile(priorReceiptPath, "utf8")) as Record<string, unknown>;
+  const baseManifest = receipt.base_manifest as Record<string, unknown>;
+  mutateBaseManifest(baseManifest);
+  receipt.base_manifest_hash = canonicalContentHash(baseManifest);
+  const planOperationKey = operationKey("apply_plan_revision", {
+    parent_plan_hash: receipt.base_plan_hash,
+    base_manifest_hash: receipt.base_manifest_hash,
+    adaptation_refs: receipt.adaptation_refs,
+  });
+  const terminalOperation = receipt.terminal_report_operation as Record<string, unknown> | null;
+  const nextOperationKey =
+    terminalOperation === null
+      ? planOperationKey
+      : operationKey("apply_terminal_closeout", {
+          plan_operation_key: planOperationKey,
+          report_request_hash: canonicalContentHash(terminalOperation.request_envelope),
+        });
+  receipt.operation_key = nextOperationKey;
+  for (const eventRecord of Array.isArray(receipt.events) ? receipt.events.filter(isRecord) : []) {
+    eventRecord.event_id = `${String(eventRecord.event_type)}_${sha256Hex(
+      operationKey("plan_runtime_event", {
+        operation_key: nextOperationKey,
+        event_type: eventRecord.event_type,
+        artifact_refs: eventRecord.artifact_refs,
+      }),
+    )}`;
+  }
+  const nextReceiptPath = path.join(
+    path.dirname(priorReceiptPath),
+    `plan-revision-${sha256Hex(nextOperationKey)}.json`,
+  );
+  await writeFile(nextReceiptPath, `${canonicalJson(receipt)}\n`);
+  if (nextReceiptPath !== priorReceiptPath) {
+    await rm(priorReceiptPath);
+  }
+}
+
+async function tamperStoredEnvelopeOnly(
+  runRoot: string,
+  artifactPath: string,
+  mutateDocument: (document: Record<string, unknown>) => void,
+): Promise<void> {
+  const targetPath = path.join(runRoot, artifactPath);
+  const envelope = JSON.parse(await readFile(targetPath, "utf8")) as Record<string, unknown>;
+  assert.ok(isRecord(envelope.document));
+  mutateDocument(envelope.document);
+  refreshStoredEnvelope(envelope);
+  await writeFile(targetPath, `${canonicalJson(envelope)}\n`);
 }
 
 async function rewriteStoredArtifactAndReceipt(
@@ -2593,6 +3194,34 @@ function candidateFor(
     exact_records: structuredClone(setup.adaptationBundle.exact_records ?? []),
   };
   return { transformed, candidateBundle };
+}
+
+function setupWithCurrentManifest(
+  setup: Awaited<ReturnType<typeof setupPersistedRun>>,
+  currentManifest: Record<string, unknown>,
+): Awaited<ReturnType<typeof setupPersistedRun>> {
+  const documents = structuredClone([...setup.adaptationBundle.documents]) as {
+    path: string;
+    document: Record<string, unknown>;
+  }[];
+  const manifestEntry = documents.find((entry) => entry.path === "manifest.json");
+  if (manifestEntry === undefined) {
+    documents.push({
+      path: "manifest.json",
+      document: structuredClone(currentManifest),
+    });
+  } else {
+    manifestEntry.document = structuredClone(currentManifest);
+  }
+  const adaptationBundle: DocumentBundle = {
+    ...structuredClone(setup.adaptationBundle),
+    documents,
+  };
+  return {
+    ...setup,
+    currentManifest: structuredClone(currentManifest),
+    adaptationBundle,
+  };
 }
 
 function preKillApplyInput(
@@ -4008,10 +4637,14 @@ test("plan-bound handoff exact replay survives Plan r2 while new consumption sta
     consumedAt: "2026-07-24T12:07:40Z",
   });
 
-  const { candidateBundle } = candidateFor(setup, PRE_KILL_APPLY_AT, PRE_KILL_CONTEXT_AT);
+  const afterHandoff = setupWithCurrentManifest(
+    setup,
+    (await setup.store.status(runId)).manifest as unknown as Record<string, unknown>,
+  );
+  const { candidateBundle } = candidateFor(afterHandoff, PRE_KILL_APPLY_AT, PRE_KILL_CONTEXT_AT);
   const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
   assert.equal(
-    (await runtime.apply(preKillApplyInput(setup, candidateBundle))).currentPlanRef,
+    (await runtime.apply(preKillApplyInput(afterHandoff, candidateBundle))).currentPlanRef,
     "plans/research-plan.r2.json",
   );
   const replay = await setup.store.readResearchHandoff({
@@ -5099,7 +5732,7 @@ test("a later same-Run adaptation preserves receipt-bound historical discovery v
   gap.based_on_plan_ref = first.currentPlanRef;
   gap.revision = 2;
   gap.parent_snapshot_ref = GAP_REF;
-  gap.created_at = "2026-07-28T12:10:00Z";
+  gap.created_at = "2026-07-28T12:13:10Z";
   const gapEntry = (gap.gaps as Record<string, unknown>[])[0];
   assert.ok(gapEntry);
   gapEntry.gap_id = "gap_post_g2_followup";
@@ -5118,7 +5751,7 @@ test("a later same-Run adaptation preserves receipt-bound historical discovery v
   decision.adaptation_id = "adapt_post_g2_followup_stop";
   decision.based_on_plan_ref = first.currentPlanRef;
   decision.trigger_gap_refs = [`${gapPath}#gap_post_g2_followup`];
-  decision.created_at = "2026-07-28T12:11:00Z";
+  decision.created_at = "2026-07-28T12:13:20Z";
   const decisionEnvelope = formalEnvelope(
     runId,
     decisionPath,
@@ -5197,7 +5830,7 @@ test("a later same-Run adaptation preserves receipt-bound historical discovery v
       schema_version: "startup_opportunity.gap_analysis_input.v1",
       document_bundle: assembled.bundle,
       snapshot_id: "gap_run_aware_cli_draft_r2",
-      created_at: "2026-07-28T12:11:30Z",
+      created_at: "2026-07-28T12:13:30Z",
       trigger_kind: "wave_completed",
       phase: "discovery",
       wave_id: "wave_discovery_synthetic",
@@ -5267,8 +5900,8 @@ test("a later same-Run adaptation preserves receipt-bound historical discovery v
     runId,
     adaptationBundle: assembled.bundle,
     adaptationRefs: [decisionPath],
-    createdAt: "2026-07-28T12:12:00Z",
-    checkpointCreatedAt: "2026-07-28T12:13:00Z",
+    createdAt: "2026-07-28T12:14:00Z",
+    checkpointCreatedAt: "2026-07-28T12:15:00Z",
     nextStep: "Keep the revised Plan and close the bounded follow-up.",
     beliefSummary: {
       current_belief: "The bounded follow-up added no material evidence.",
@@ -5452,26 +6085,6 @@ test("a divergent lifecycle operation cannot cross an unresolved Plan intent", a
   delete terminate.target_unit;
   delete terminate.retry_basis;
   delete terminate.success_condition;
-  await setup.store.publishArtifact({
-    runId,
-    envelope: formalEnvelope(runId, terminateRef, terminate, [PLAN_REF, GAP_REF]),
-  });
-  const manifestWithBothDecisions = (await setup.store.status(runId)).manifest as unknown as Record<
-    string,
-    unknown
-  >;
-  const terminateBundle = bundle(
-    manifestWithBothDecisions,
-    setup.plan,
-    setup.planningContext,
-    setup.gap,
-    terminate,
-    [setup.checkpointEntry],
-  );
-  (
-    terminateBundle.documents.find((entry) => entry.path === DECISION_REF) as { path: string }
-  ).path = terminateRef;
-
   const { candidateBundle } = candidateFor(setup);
   const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
   const retryInput = {
@@ -5494,6 +6107,25 @@ test("a divergent lifecycle operation cannot cross an unresolved Plan intent", a
     runtime.apply({ ...retryInput, faultAt: "after_intent" }),
     (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
   );
+  await setup.store.publishArtifact({
+    runId,
+    envelope: formalEnvelope(runId, terminateRef, terminate, [PLAN_REF, GAP_REF]),
+  });
+  const manifestWithBothDecisions = (await setup.store.status(runId)).manifest as unknown as Record<
+    string,
+    unknown
+  >;
+  const terminateBundle = bundle(
+    manifestWithBothDecisions,
+    setup.plan,
+    setup.planningContext,
+    setup.gap,
+    terminate,
+    [setup.checkpointEntry],
+  );
+  (
+    terminateBundle.documents.find((entry) => entry.path === DECISION_REF) as { path: string }
+  ).path = terminateRef;
   await assert.rejects(
     runtime.apply({
       runId,
@@ -5511,10 +6143,20 @@ test("a divergent lifecycle operation cannot cross an unresolved Plan intent", a
       },
     }),
     (error: unknown) =>
-      error instanceof StoreError && error.code === "apply.pending_operation_conflict",
+      error instanceof StoreError &&
+      ["apply.pending_operation_conflict", "recovery.invalid_plan_operation"].includes(error.code),
   );
   assert.equal((await setup.store.status(runId)).manifest.status, "researching");
-  assert.equal((await runtime.apply(retryInput)).status, "idempotent_replay");
+  const retryReceipt = JSON.parse(await readFile(await planReceiptFile(setup.runRoot), "utf8")) as
+    | Record<string, unknown>
+    | undefined;
+  assert.ok(retryReceipt);
+  await assert.rejects(
+    runtime.apply({ ...retryInput, operationKey: String(retryReceipt.operation_key) }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      ["apply.base_manifest_conflict", "recovery.invalid_plan_operation"].includes(error.code),
+  );
 });
 
 test("terminal adaptation requires and materializes a validated main-agent decision brief", async (contextTest) => {
@@ -5989,7 +6631,7 @@ test("decision subject authority survives Plan r2 transition, terminal reporting
     parent_snapshot_hash: r1Envelope.content_hash,
     research_plan_ref: planR2Envelope.artifact_path,
     research_plan_hash: planR2Envelope.content_hash,
-    created_at: "2026-07-28T12:10:00Z",
+    created_at: "2026-07-28T12:14:00Z",
   };
   const snapshotR2Envelope = formalEnvelope(runId, snapshotR2Ref, snapshotR2Document, [
     DECISION_SUBJECT_SNAPSHOT_REF,
@@ -6007,7 +6649,7 @@ test("decision subject authority survives Plan r2 transition, terminal reporting
   terminalGap.revision = 2;
   terminalGap.parent_snapshot_ref = GAP_REF;
   terminalGap.based_on_plan_ref = planR2Envelope.artifact_path;
-  terminalGap.created_at = "2026-07-28T12:10:15Z";
+  terminalGap.created_at = "2026-07-28T12:14:15Z";
   terminalGap.snapshot_cycle_key = "enrichment:wave_runtime_1:fixture";
   terminalGap.stop_signals = ["runtime_blocked"];
   const terminalGapEntry = (terminalGap.gaps as Record<string, unknown>[])[0];
@@ -6033,7 +6675,7 @@ test("decision subject authority survives Plan r2 transition, terminal reporting
   terminalDecision.adaptation_id = "adapt_runtime_terminal_r2";
   terminalDecision.based_on_plan_ref = planR2Envelope.artifact_path;
   terminalDecision.trigger_gap_refs = [`${terminalGapRef}#gap_runtime_terminal_r2`];
-  terminalDecision.created_at = "2026-07-28T12:10:30Z";
+  terminalDecision.created_at = "2026-07-28T12:14:30Z";
   const terminalDecisionEnvelope = formalEnvelope(runId, terminalDecisionRef, terminalDecision, [
     planR2Envelope.artifact_path,
     terminalGapRef,
@@ -6046,7 +6688,7 @@ test("decision subject authority survives Plan r2 transition, terminal reporting
     true,
     snapshotR2Ref,
     planR2Envelope.artifact_path,
-    "2026-07-28T12:11:00Z",
+    "2026-07-28T12:15:00Z",
   );
   reportEnvelope.document.audit_refs = [
     DECISION_REF,
@@ -6092,8 +6734,8 @@ test("decision subject authority survives Plan r2 transition, terminal reporting
       adaptationBundle: assembledTerminal.bundle,
       adaptationRefs: [terminalDecisionRef],
       terminalReportEnvelope: reportEnvelope,
-      createdAt: "2026-07-28T12:11:15Z",
-      checkpointCreatedAt: "2026-07-28T12:11:30Z",
+      createdAt: "2026-07-28T12:15:15Z",
+      checkpointCreatedAt: "2026-07-28T12:15:30Z",
       nextStep: "Deliver the terminal report bound to snapshot r2 and Plan r2.",
       beliefSummary: {
         current_belief: "SYNTHETIC runtime failure prevents a research conclusion.",
@@ -6115,7 +6757,7 @@ test("decision subject authority survives Plan r2 transition, terminal reporting
     .checkpoint({
       runId,
       checkpointId: "checkpoint_decision_subject_plan_r2",
-      createdAt: "2026-07-28T12:12:00Z",
+      createdAt: "2026-07-28T12:16:00Z",
       nextStep: "Reopen and verify snapshot r2 remains authoritative.",
       beliefSummary: {
         current_belief: "SYNTHETIC report is bound to snapshot r2 and Plan r2.",
@@ -8035,6 +8677,1106 @@ test("runtime failure alone may close with a disclosed missing Search Closure", 
   );
 });
 
+test("runtime failure closes active discovery units after launch registration", async (contextTest) => {
+  const runId = "runtime-failure-active-discovery";
+  const setup = await setupPersistedRun(contextTest, runId, "runtime-failure");
+  const launchEnvelopes = incompleteExecutionWaveEnvelopes(runId, setup.plan);
+  const dispatchEnvelope = launchEnvelopes.find(
+    (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(dispatchEnvelope);
+  await publishRuntimeEnvelopesAsFormalStage(
+    setup,
+    launchEnvelopes,
+    `request_g0_4_runtime_launch_${runId}`,
+  );
+  await registerRuntimeLaunch(setup, dispatchEnvelope, "2026-07-24T12:07:18Z");
+
+  const preStatus = await setup.store.status(runId);
+  assert.deepEqual([...preStatus.manifest.active_units].sort(), ["buyer_active", "value_pending"]);
+  assert.equal(preStatus.observability.laneTimings.length, 1);
+  assert.equal(preStatus.observability.laneTimings[0]?.unitId, "value_pending");
+  assert.equal(preStatus.observability.laneTimings[0]?.state, "agent_started");
+  assert.equal(preStatus.observability.laneTimings[0]?.endedAt, null);
+
+  const terminal = await prepareTerminalReporting(setup, true);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const input = terminalApplyInput(
+    setup,
+    terminal,
+    "The runtime failure prevents a research conclusion.",
+  );
+  const applied = await runtime.apply(input);
+  assert.equal(applied.status, "applied");
+  assert.equal(applied.terminalReport?.status, "published");
+  assert.equal((await runtime.apply(input)).status, "idempotent_replay");
+
+  const status = await setup.store.status(runId);
+  assert.equal(status.manifest.status, "failed");
+  assert.deepEqual(status.manifest.active_units, []);
+  assert.ok(status.manifest.failed_units.includes("buyer_active"));
+  assert.ok(status.manifest.failed_units.includes("value_pending"));
+  assert.deepEqual(status.manifest.pending_adaptation_refs, []);
+  assert.equal(status.terminalReportDisposition, "ready", JSON.stringify(status, null, 2));
+  assert.equal(status.resumeContext.status, "failed");
+  assert.equal(status.observability.laneTimings.length, 1);
+  assert.equal(status.observability.laneTimings[0]?.unitId, "value_pending");
+  assert.equal(status.observability.laneTimings[0]?.state, "failed");
+  assert.equal(status.observability.laneTimings[0]?.endedAt, "2026-07-24T12:08:00Z");
+  assert.equal(status.observability.laneTimings[0]?.durationMs, 43_000);
+  assert.equal(status.observability.stageTimings.length, 1, JSON.stringify(status, null, 2));
+  assert.equal(status.observability.stageTimings[0]?.stageId, "stage_incomplete_runtime");
+  assert.equal(status.observability.stageTimings[0]?.state, "failed");
+  assert.equal(status.observability.stageTimings[0]?.failureKind, "runtime_blocked");
+  assert.equal(status.observability.stageTimings[0]?.endedAt, "2026-07-24T12:08:00Z");
+  assert.equal(status.observability.stageTimings[0]?.durationMs, 43_000);
+  assert.equal(status.observability.failureClassifications.runtime_blocked, 2);
+
+  const publishedEnvelopes = await Promise.all(
+    status.manifest.artifact_refs.map(
+      async (artifactRef) =>
+        JSON.parse(
+          await readFile(path.join(setup.runRoot, artifactRef), "utf8"),
+        ) as FormalArtifactEnvelope,
+    ),
+  );
+  const lifecycleHistory = publishedEnvelopes
+    .filter((envelope) => envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1")
+    .sort((left, right) => Number(left.document.revision) - Number(right.document.revision));
+  assert.equal(lifecycleHistory.length, 2, JSON.stringify(lifecycleHistory, null, 2));
+  const lifecycleRoot = lifecycleHistory[0];
+  const lifecycleCloseout = lifecycleHistory[1];
+  assert.ok(lifecycleRoot);
+  assert.ok(lifecycleCloseout);
+  assert.equal(lifecycleRoot.document.state, "agent_started");
+  assert.equal(lifecycleRoot.document.failure, null);
+  assert.equal(
+    lifecycleCloseout.artifact_path,
+    canonicalLaneLifecyclePath(lifecycleCloseout.document, 2),
+  );
+  assert.equal(lifecycleCloseout.document.revision, 2);
+  assert.equal(
+    lifecycleCloseout.document.parent_lifecycle_ref,
+    canonicalLaneLifecyclePath(lifecycleCloseout.document, 1),
+  );
+  for (const field of [
+    "lifecycle_id",
+    "run_id",
+    "unit_id",
+    "attempt",
+    "execution_attempt_id",
+    "dispatch_batch_ref",
+    "dispatch_batch_hash",
+    "task_ref",
+    "task_id",
+    "launch_registration_ref",
+    "launch_registration_id",
+    "launch_registration_hash",
+  ] as const) {
+    assert.equal(lifecycleCloseout.document[field], lifecycleRoot.document[field], field);
+  }
+  assert.equal(lifecycleCloseout.document.state, "failed");
+  assert.deepEqual(lifecycleCloseout.document.failure, {
+    kind: "runtime_blocked",
+    detail: (lifecycleCloseout.document.failure as Record<string, unknown>).detail,
+    retryable: false,
+  });
+  assert.equal(
+    (lifecycleCloseout.document.timestamps as Record<string, unknown>).ended_at,
+    "2026-07-24T12:08:00Z",
+  );
+
+  const stageCloseouts = publishedEnvelopes.filter(
+    (envelope) => envelope.artifact_type === "startup_opportunity.execution_stage_closeout.v1",
+  );
+  assert.equal(stageCloseouts.length, 1, JSON.stringify(stageCloseouts, null, 2));
+  const stageCloseout = stageCloseouts[0];
+  assert.ok(stageCloseout);
+  assert.equal(
+    stageCloseout.artifact_path,
+    canonicalExecutionStageCloseoutPath(stageCloseout.document),
+  );
+  assert.equal(stageCloseout.created_at, "2026-07-24T12:08:00Z");
+  assert.equal(stageCloseout.producer_role, "harness");
+  assert.equal(stageCloseout.document.stage_id, "stage_incomplete_runtime");
+  assert.equal(stageCloseout.document.stage_state, "failed");
+  assert.equal((stageCloseout.document.failure as Record<string, unknown>).kind, "runtime_blocked");
+  assert.equal((stageCloseout.document.failure as Record<string, unknown>).retryable, false);
+  assert.deepEqual(stageCloseout.document.started_unit_ids, ["value_pending"]);
+  assert.deepEqual(stageCloseout.document.completed_unit_ids, []);
+  assert.deepEqual(stageCloseout.document.failed_unit_ids, ["value_pending"]);
+  assert.deepEqual(stageCloseout.document.incomplete_unit_ids, ["value_pending"]);
+  assert.deepEqual(stageCloseout.document.not_started_unit_ids, []);
+  const dispositions = stageCloseout.document.unit_dispositions as Record<string, unknown>[];
+  assert.equal(dispositions.length, 1, JSON.stringify(stageCloseout, null, 2));
+  assert.equal(dispositions[0]?.unit_id, "value_pending");
+  assert.equal(dispositions[0]?.disposition, "runtime_failed");
+  assert.equal(dispositions[0]?.lifecycle_ref, lifecycleCloseout.artifact_path);
+  assert.equal(dispositions[0]?.lifecycle_hash, lifecycleCloseout.content_hash);
+  const basisRefs = stageCloseout.document.basis_refs as string[];
+  assert.ok(basisRefs.includes(DECISION_REF), JSON.stringify(stageCloseout, null, 2));
+  assert.ok(
+    basisRefs.includes(`${GAP_REF}#gap_runtime_001`),
+    JSON.stringify(stageCloseout, null, 2),
+  );
+  assert.equal(
+    (stageCloseout.document.failure as Record<string, unknown>).detail,
+    (lifecycleCloseout.document.failure as Record<string, unknown>).detail,
+  );
+  assert.equal(
+    publishedEnvelopes.filter(
+      (envelope) =>
+        envelope.artifact_type === "startup_opportunity.discovery_stage_readiness.v1" &&
+        envelope.document.stop_basis === "runtime_blocked",
+    ).length,
+    0,
+  );
+});
+
+test("status scopes duplicate stage ids by execution plan and dispatch", async (contextTest) => {
+  const runId = "runtime-failure-stage-timing-exact-key";
+  const setup = await setupPersistedRun(contextTest, runId, "runtime-failure");
+  const manifestPath = path.join(setup.runRoot, "manifest.json");
+  const mutableManifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  mutableManifest.active_units = [];
+  mutableManifest.updated_at = "2026-07-24T12:06:30Z";
+  await writeFile(manifestPath, `${canonicalJson(mutableManifest)}\n`);
+
+  const firstWave = incompleteExecutionWaveEnvelopes(runId, setup.plan);
+  await publishRuntimeEnvelopesAsFormalStage(
+    setup,
+    firstWave,
+    `request_g0_4_duplicate_stage_r1_${runId}`,
+  );
+  const firstExecution = firstWave.find(
+    (envelope) =>
+      envelope.artifact_type === "startup_opportunity.research_execution_plan.discovery.current",
+  );
+  const firstDispatch = firstWave.find(
+    (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(firstExecution);
+  assert.ok(firstDispatch);
+
+  const secondWave = retargetIncompleteExecutionWave(runId, setup.plan, {
+    unitId: "buyer_active",
+    executionRevision: 2,
+    parentExecutionPlanRef: firstExecution.artifact_path,
+    dispatchPath: "tasks/dispatch/incomplete-runtime-r2.r1.json",
+    taskReadyAt: "2026-07-24T12:07:40Z",
+    dispatchRequestedAt: "2026-07-24T12:07:45Z",
+  });
+  await publishRuntimeEnvelopesAsFormalStage(
+    setup,
+    secondWave,
+    `request_g0_4_duplicate_stage_r2_${runId}`,
+  );
+  const secondDispatch = secondWave.find(
+    (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(secondDispatch);
+  await registerRuntimeLaunch(setup, secondDispatch, "2026-07-24T12:07:50Z");
+
+  const preStatus = await setup.store.status(runId);
+  const preFirstStage = preStatus.observability.stageTimings.find(
+    (timing) =>
+      timing.executionPlanRef === "plans/research-execution.r1.json" &&
+      timing.stageId === "stage_incomplete_runtime",
+  );
+  const preSecondStage = preStatus.observability.stageTimings.find(
+    (timing) =>
+      timing.executionPlanRef === "plans/research-execution.r2.json" &&
+      timing.stageId === "stage_incomplete_runtime",
+  );
+  assert.ok(preFirstStage, JSON.stringify(preStatus.observability.stageTimings, null, 2));
+  assert.ok(preSecondStage, JSON.stringify(preStatus.observability.stageTimings, null, 2));
+  assert.equal(preFirstStage.state, "active");
+  assert.equal(preFirstStage.endedAt, null);
+  assert.equal(preSecondStage.state, "active");
+  assert.equal(preSecondStage.endedAt, null);
+
+  const terminal = await prepareTerminalReporting(setup, true);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const applied = await runtime.apply(
+    terminalApplyInput(
+      setup,
+      terminal,
+      "The runtime failure closes duplicate stage ids through PlanRuntime authority.",
+    ),
+  );
+  assert.equal(applied.status, "applied");
+
+  const status = await setup.store.status(runId);
+  const firstStage = status.observability.stageTimings.find(
+    (timing) =>
+      timing.executionPlanRef === "plans/research-execution.r1.json" &&
+      timing.stageId === "stage_incomplete_runtime",
+  );
+  const secondStage = status.observability.stageTimings.find(
+    (timing) =>
+      timing.executionPlanRef === "plans/research-execution.r2.json" &&
+      timing.stageId === "stage_incomplete_runtime",
+  );
+  assert.ok(firstStage, JSON.stringify(status.observability.stageTimings, null, 2));
+  assert.ok(secondStage, JSON.stringify(status.observability.stageTimings, null, 2));
+  assert.equal(firstStage.state, "failed");
+  assert.equal(firstStage.failureKind, "runtime_blocked");
+  assert.equal(firstStage.endedAt, "2026-07-24T12:08:00Z");
+  assert.equal(firstStage.durationMs, 43_000);
+  assert.equal(secondStage.state, "failed");
+  assert.equal(secondStage.failureKind, "runtime_blocked");
+  assert.equal(secondStage.endedAt, "2026-07-24T12:08:00Z");
+  assert.equal(secondStage.durationMs, 15_000);
+  const publishedEnvelopes = await Promise.all(
+    status.manifest.artifact_refs.map(
+      async (artifactRef) =>
+        JSON.parse(
+          await readFile(path.join(setup.runRoot, artifactRef), "utf8"),
+        ) as FormalArtifactEnvelope,
+    ),
+  );
+  const stageCloseouts = publishedEnvelopes.filter(
+    (envelope) => envelope.artifact_type === "startup_opportunity.execution_stage_closeout.v1",
+  );
+  assert.equal(stageCloseouts.length, 2, JSON.stringify(stageCloseouts, null, 2));
+  const firstCloseout = stageCloseouts.find(
+    (envelope) => envelope.document.dispatch_ref === firstDispatch.artifact_path,
+  );
+  const secondCloseout = stageCloseouts.find(
+    (envelope) => envelope.document.dispatch_ref === secondDispatch.artifact_path,
+  );
+  assert.ok(firstCloseout, JSON.stringify(stageCloseouts, null, 2));
+  assert.ok(secondCloseout, JSON.stringify(stageCloseouts, null, 2));
+  assert.notEqual(firstCloseout.artifact_path, secondCloseout.artifact_path);
+  assert.equal(firstCloseout.document.execution_plan_ref, firstExecution.artifact_path);
+  assert.equal(secondCloseout.document.execution_plan_ref, "plans/research-execution.r2.json");
+  assert.equal(firstCloseout.document.stage_id, secondCloseout.document.stage_id);
+  assert.equal(firstCloseout.document.dispatch_ref, firstDispatch.artifact_path);
+  assert.equal(secondCloseout.document.dispatch_ref, secondDispatch.artifact_path);
+  assert.equal(firstCloseout.document.ended_at, "2026-07-24T12:08:00Z");
+  assert.equal(secondCloseout.document.ended_at, "2026-07-24T12:08:00Z");
+  assert.deepEqual(firstCloseout.document.not_started_unit_ids, ["value_pending"]);
+  assert.deepEqual(secondCloseout.document.failed_unit_ids, ["buyer_active"]);
+});
+
+test("generic Store and CLI entries reject PlanRuntime runtime failure closeouts", async (contextTest) => {
+  const runId = "runtime-failure-closeout-public-entry-guard";
+  const setup = await setupPersistedRun(contextTest, runId, "runtime-failure");
+  const launchEnvelopes = incompleteExecutionWaveEnvelopes(runId, setup.plan);
+  const dispatchEnvelope = launchEnvelopes.find(
+    (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(dispatchEnvelope);
+  await publishRuntimeEnvelopesAsFormalStage(
+    setup,
+    launchEnvelopes,
+    `request_g0_4_closeout_entry_guard_${runId}`,
+  );
+  await registerRuntimeLaunch(setup, dispatchEnvelope, "2026-07-24T12:07:18Z");
+  const terminal = await prepareTerminalReporting(setup, true);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const input = terminalApplyInput(
+    setup,
+    terminal,
+    "The runtime failure prepares closeouts that only PlanRuntime may publish.",
+  );
+  await assert.rejects(
+    runtime.apply({ ...input, faultAt: "after_intent" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+
+  const receipt = JSON.parse(
+    await readFile(await planReceiptFile(setup.runRoot), "utf8"),
+  ) as Record<string, unknown>;
+  const closeouts = (receipt.control_envelopes as FormalArtifactEnvelope[]).filter(
+    (envelope) =>
+      envelope.artifact_type === "startup_opportunity.execution_stage_closeout.v1" ||
+      (envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1" &&
+        envelope.document.state === "failed" &&
+        isRecord(envelope.document.failure) &&
+        envelope.document.failure.kind === "runtime_blocked"),
+  );
+  assert.ok(closeouts.length >= 2, JSON.stringify(receipt, null, 2));
+  const singleCloseout = closeouts[0] as FormalArtifactEnvelope;
+  const closeoutBundle = closeouts.slice(0, 2);
+  const artifactStore = new ArtifactStore(setup.runsRoot, setup.validator);
+  const beforeAttempts = await snapshotRunTree(setup.runRoot);
+  const expectDedicatedEntry = (error: unknown): boolean =>
+    error instanceof StoreError && error.code === "artifact.plan_runtime_closeout_entry_required";
+
+  await assert.rejects(
+    setup.store.publishArtifact({ runId, envelope: singleCloseout }),
+    expectDedicatedEntry,
+  );
+  await assert.rejects(
+    setup.store.publishArtifactBundle({ runId, envelopes: closeoutBundle }),
+    expectDedicatedEntry,
+  );
+  await assert.rejects(
+    artifactStore.publish({ runId, envelope: singleCloseout }),
+    expectDedicatedEntry,
+  );
+  await assert.rejects(
+    artifactStore.publishBundle({ runId, envelopes: closeoutBundle }),
+    expectDedicatedEntry,
+  );
+  await assert.rejects(
+    artifactStore.publishLocked(setup.runRoot, { runId, envelope: singleCloseout }),
+    expectDedicatedEntry,
+  );
+  await assert.rejects(
+    artifactStore.publishBundleLocked(setup.runRoot, { runId, envelopes: closeoutBundle }),
+    expectDedicatedEntry,
+  );
+
+  const singleFile = path.join(setup.root, "runtime-closeout-single.json");
+  await writeFile(singleFile, `${canonicalJson(singleCloseout)}\n`);
+  const cliSingle = runScript("harness/src/cli.ts", [
+    "publish-artifact",
+    "--file",
+    singleFile,
+    "--runs-root",
+    setup.runsRoot,
+  ]);
+  assert.equal(cliSingle.status, 1, cliSingle.stderr || cliSingle.stdout);
+  assert.match(cliSingle.stderr, /artifact\.plan_runtime_closeout_entry_required/u);
+
+  const bundleFile = path.join(setup.root, "runtime-closeout-bundle.json");
+  await writeFile(
+    bundleFile,
+    `${canonicalJson({
+      schema_version: "startup_opportunity.document_bundle.current",
+      documents: closeoutBundle.map((envelope) => ({
+        path: envelope.artifact_path,
+        document: envelope,
+      })),
+      exact_records: [],
+    })}\n`,
+  );
+  const cliBundle = runScript("harness/src/cli.ts", [
+    "publish-artifact",
+    "--file",
+    bundleFile,
+    "--runs-root",
+    setup.runsRoot,
+  ]);
+  assert.equal(cliBundle.status, 1, cliBundle.stderr || cliBundle.stdout);
+  assert.match(cliBundle.stderr, /artifact\.plan_runtime_closeout_entry_required/u);
+  assert.deepEqual(await snapshotRunTree(setup.runRoot), beforeAttempts);
+});
+
+test("runtime failure lane and stage closeout recover through every Plan fault boundary", async (contextTest) => {
+  for (const [index, faultAt] of (
+    [
+      "after_intent",
+      "after_control_artifacts",
+      "after_manifest_update",
+      "after_checkpoint_publish",
+    ] as const
+  ).entries()) {
+    await contextTest.test(faultAt, async (subcontext) => {
+      const runId = `runtime-failure-closeout-fault-${String(index + 1)}`;
+      const setup = await setupPersistedRun(subcontext, runId, "runtime-failure");
+      const launchEnvelopes = incompleteExecutionWaveEnvelopes(runId, setup.plan);
+      const dispatchEnvelope = launchEnvelopes.find(
+        (envelope) =>
+          envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+      );
+      assert.ok(dispatchEnvelope);
+      await publishRuntimeEnvelopesAsFormalStage(
+        setup,
+        launchEnvelopes,
+        `request_g0_4_runtime_fault_${runId}`,
+      );
+      await registerRuntimeLaunch(setup, dispatchEnvelope, "2026-07-24T12:07:18Z");
+
+      const terminal = await prepareTerminalReporting(setup, true);
+      const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+      const input = terminalApplyInput(
+        setup,
+        terminal,
+        "The runtime failure prevents a research conclusion.",
+      );
+      await assert.rejects(
+        runtime.apply({ ...input, faultAt }),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+      const interrupted = await setup.store.status(runId);
+      if (faultAt === "after_intent") {
+        assert.equal(interrupted.manifest.status, "researching", faultAt);
+        assert.equal(interrupted.observability.laneTimings[0]?.state, "agent_started", faultAt);
+        assert.equal(interrupted.observability.laneTimings[0]?.endedAt, null, faultAt);
+      } else if (faultAt === "after_control_artifacts") {
+        assert.equal(interrupted.manifest.status, "researching", faultAt);
+        assert.equal(interrupted.observability.laneTimings[0]?.state, "agent_started", faultAt);
+        assert.equal(interrupted.observability.laneTimings[0]?.endedAt, null, faultAt);
+        assert.equal(interrupted.observability.stageTimings[0]?.state, "active", faultAt);
+        assert.equal(interrupted.observability.stageTimings[0]?.failureKind, null, faultAt);
+        assert.equal(interrupted.observability.stageTimings[0]?.endedAt, null, faultAt);
+        assert.equal(interrupted.terminalReportDisposition, "not_required", faultAt);
+      } else {
+        assert.equal(interrupted.manifest.status, "failed", faultAt);
+        assert.equal(interrupted.observability.laneTimings[0]?.state, "failed", faultAt);
+        assert.equal(
+          interrupted.observability.stageTimings[0]?.failureKind,
+          "runtime_blocked",
+          faultAt,
+        );
+        assert.equal(interrupted.terminalReportDisposition, "ready", faultAt);
+      }
+
+      await setup.store.load(runId);
+      const replay = await runtime.apply(input);
+      assert.equal(replay.status, "idempotent_replay");
+      const status = await setup.store.status(runId);
+      assert.equal(status.manifest.status, "failed", JSON.stringify(status, null, 2));
+      assert.deepEqual(status.manifest.active_units, [], JSON.stringify(status, null, 2));
+      assert.equal(status.observability.laneTimings[0]?.state, "failed");
+      assert.equal(status.observability.laneTimings[0]?.endedAt, "2026-07-24T12:08:00Z");
+      assert.equal(status.observability.stageTimings[0]?.state, "failed");
+      assert.equal(status.observability.stageTimings[0]?.failureKind, "runtime_blocked");
+      assert.equal(status.observability.stageTimings[0]?.endedAt, "2026-07-24T12:08:00Z");
+      assert.equal(status.terminalReportDisposition, "ready", JSON.stringify(status, null, 2));
+
+      const publishedEnvelopes = await Promise.all(
+        status.manifest.artifact_refs.map(
+          async (artifactRef) =>
+            JSON.parse(
+              await readFile(path.join(setup.runRoot, artifactRef), "utf8"),
+            ) as FormalArtifactEnvelope,
+        ),
+      );
+      const lifecycleRevisions = publishedEnvelopes
+        .filter((envelope) => envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1")
+        .map((envelope) => Number(envelope.document.revision))
+        .sort((left, right) => left - right);
+      assert.deepEqual(lifecycleRevisions, [1, 2], JSON.stringify(lifecycleRevisions));
+      assert.equal(
+        publishedEnvelopes.filter(
+          (envelope) =>
+            envelope.artifact_type === "startup_opportunity.execution_stage_closeout.v1",
+        ).length,
+        1,
+      );
+    });
+  }
+});
+
+test("runtime failure receipt rejects tampered derived closeout bytes before recovery writes", async (contextTest) => {
+  const scenarios: readonly {
+    readonly name: string;
+    readonly mutate: (
+      receipt: Record<string, unknown>,
+      controlEnvelopes: Record<string, unknown>[],
+    ) => void;
+  }[] = [
+    {
+      name: "lifecycle-detail",
+      mutate: (_receipt, controlEnvelopes) => {
+        const lifecycle = controlEnvelopes.find(
+          (envelope) => envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1",
+        );
+        assert.ok(isRecord(lifecycle?.document));
+        const failure = lifecycle.document.failure as Record<string, unknown>;
+        failure.detail = `${String(failure.detail)} forged`;
+      },
+    },
+    {
+      name: "lifecycle-ended-at",
+      mutate: (_receipt, controlEnvelopes) => {
+        const lifecycle = controlEnvelopes.find(
+          (envelope) => envelope.artifact_type === "startup_opportunity.lane_lifecycle.v1",
+        );
+        assert.ok(isRecord(lifecycle?.document));
+        const timestamps = lifecycle.document.timestamps as Record<string, unknown>;
+        timestamps.ended_at = "2026-07-24T12:08:01Z";
+      },
+    },
+    {
+      name: "stage-detail",
+      mutate: (_receipt, controlEnvelopes) => {
+        const closeout = controlEnvelopes.find(
+          (envelope) =>
+            envelope.artifact_type === "startup_opportunity.execution_stage_closeout.v1",
+        );
+        assert.ok(isRecord(closeout?.document));
+        const failure = closeout.document.failure as Record<string, unknown>;
+        failure.detail = `${String(failure.detail)} forged`;
+      },
+    },
+    {
+      name: "stage-ended-at",
+      mutate: (_receipt, controlEnvelopes) => {
+        const closeout = controlEnvelopes.find(
+          (envelope) =>
+            envelope.artifact_type === "startup_opportunity.execution_stage_closeout.v1",
+        );
+        assert.ok(isRecord(closeout?.document));
+        closeout.document.ended_at = "2026-07-24T12:08:01Z";
+      },
+    },
+    {
+      name: "stage-basis",
+      mutate: (_receipt, controlEnvelopes) => {
+        const closeout = controlEnvelopes.find(
+          (envelope) =>
+            envelope.artifact_type === "startup_opportunity.execution_stage_closeout.v1",
+        );
+        assert.ok(isRecord(closeout?.document));
+        closeout.document.basis_refs = (closeout.document.basis_refs as string[]).filter(
+          (ref) => ref !== `${GAP_REF}#gap_runtime_001`,
+        );
+      },
+    },
+    {
+      name: "stage-lifecycle-hash",
+      mutate: (_receipt, controlEnvelopes) => {
+        const closeout = controlEnvelopes.find(
+          (envelope) =>
+            envelope.artifact_type === "startup_opportunity.execution_stage_closeout.v1",
+        );
+        assert.ok(isRecord(closeout?.document));
+        const disposition = (closeout.document.unit_dispositions as Record<string, unknown>[])[0];
+        assert.ok(disposition);
+        disposition.lifecycle_hash = sha256Bytes("forged lifecycle hash");
+      },
+    },
+    {
+      name: "base-manifest",
+      mutate: (receipt) => {
+        const baseManifest = receipt.base_manifest as Record<string, unknown>;
+        baseManifest.active_units = [];
+        baseManifest.failed_units = ["buyer_active", "value_pending"];
+      },
+    },
+  ];
+  for (const [index, scenario] of scenarios.entries()) {
+    await contextTest.test(scenario.name, async (subcontext) => {
+      const runId = `runtime-failure-receipt-tamper-${index + 1}`;
+      const setup = await setupPersistedRun(subcontext, runId, "runtime-failure");
+      const launchEnvelopes = incompleteExecutionWaveEnvelopes(runId, setup.plan);
+      const dispatchEnvelope = launchEnvelopes.find(
+        (envelope) =>
+          envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+      );
+      assert.ok(dispatchEnvelope);
+      await publishRuntimeEnvelopesAsFormalStage(
+        setup,
+        launchEnvelopes,
+        `request_g0_4_receipt_tamper_${index + 1}`,
+      );
+      await registerRuntimeLaunch(setup, dispatchEnvelope, "2026-07-24T12:07:18Z");
+      const terminal = await prepareTerminalReporting(setup, true);
+      const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+      const input = terminalApplyInput(
+        setup,
+        terminal,
+        "The runtime failure prevents a research conclusion.",
+      );
+      await assert.rejects(
+        runtime.apply({ ...input, faultAt: "after_intent" }),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+      await tamperRuntimeFailurePlanReceipt(setup.runRoot, scenario.mutate);
+      const beforeRecovery = await snapshotRunTree(setup.runRoot);
+      await assert.rejects(
+        setup.store.load(runId),
+        (error: unknown) =>
+          error instanceof StoreError &&
+          ["recovery.invalid_plan_operation", "apply.base_manifest_conflict"].includes(error.code),
+      );
+      assert.deepEqual(await snapshotRunTree(setup.runRoot), beforeRecovery);
+      const manifestAfter = JSON.parse(
+        await readFile(path.join(setup.runRoot, "manifest.json"), "utf8"),
+      ) as Record<string, unknown>;
+      assert.equal(manifestAfter.status, "researching");
+      assert.deepEqual([...((manifestAfter.active_units as string[]) ?? [])].sort(), [
+        "buyer_active",
+        "value_pending",
+      ]);
+      await assertNoTerminalReportOutputs(setup.runRoot);
+    });
+  }
+});
+
+test("runtime failure receipt rejects coordinated base Manifest tamper at pending recovery", async (contextTest) => {
+  for (const faultAt of ["after_intent", "after_control_artifacts"] as const) {
+    await contextTest.test(faultAt, async (subcontext) => {
+      const runId = `runtime-failure-base-manifest-coordinated-${faultAt.replaceAll("_", "-")}`;
+      const setup = await setupPersistedRun(subcontext, runId, "runtime-failure");
+      const launchEnvelopes = incompleteExecutionWaveEnvelopes(runId, setup.plan);
+      const dispatchEnvelope = launchEnvelopes.find(
+        (envelope) =>
+          envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+      );
+      assert.ok(dispatchEnvelope);
+      await publishRuntimeEnvelopesAsFormalStage(
+        setup,
+        launchEnvelopes,
+        `request_g0_4_base_manifest_coordinated_${faultAt}`,
+      );
+      await registerRuntimeLaunch(setup, dispatchEnvelope, "2026-07-24T12:07:18Z");
+      const terminal = await prepareTerminalReporting(setup, true);
+      const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+      const input = terminalApplyInput(
+        setup,
+        terminal,
+        "The runtime failure receipt cannot authenticate a forged base Manifest.",
+      );
+      await assert.rejects(
+        runtime.apply({ ...input, faultAt }),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+      await tamperPlanReceiptBaseManifestWithCoordinatedIdentity(setup.runRoot, (baseManifest) => {
+        baseManifest.updated_at = "2026-07-24T12:06:01Z";
+        baseManifest.pending_adaptation_refs = [
+          ...new Set([
+            ...((baseManifest.pending_adaptation_refs as string[]) ?? []),
+            "adaptations/decisions/forged-extra-pending.json",
+          ]),
+        ].sort();
+      });
+      const beforeRecovery = await snapshotRunTree(setup.runRoot);
+      await assert.rejects(
+        setup.store.load(runId),
+        (error: unknown) =>
+          error instanceof StoreError &&
+          ["recovery.invalid_plan_operation", "apply.base_manifest_conflict"].includes(error.code),
+      );
+      assert.deepEqual(await snapshotRunTree(setup.runRoot), beforeRecovery);
+      const manifestAfter = JSON.parse(
+        await readFile(path.join(setup.runRoot, "manifest.json"), "utf8"),
+      ) as Record<string, unknown>;
+      assert.equal(manifestAfter.status, "researching");
+      assert.deepEqual([...((manifestAfter.active_units as string[]) ?? [])].sort(), [
+        "buyer_active",
+        "value_pending",
+      ]);
+      assert.ok(
+        !((manifestAfter.pending_adaptation_refs as string[]) ?? []).includes(
+          "adaptations/decisions/forged-extra-pending.json",
+        ),
+      );
+      await assertNoTerminalReportOutputs(setup.runRoot);
+    });
+  }
+});
+
+test("runtime failure prepare rejects tampered already-terminal lifecycle source before writes", async (contextTest) => {
+  const runId = "runtime-failure-terminal-lifecycle-source-tamper";
+  const setup = await setupPersistedRun(contextTest, runId, "runtime-failure");
+  const launchEnvelopes = incompleteExecutionWaveEnvelopes(runId, setup.plan);
+  const dispatchEnvelope = launchEnvelopes.find(
+    (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(dispatchEnvelope);
+  await publishRuntimeEnvelopesAsFormalStage(
+    setup,
+    launchEnvelopes,
+    `request_g0_4_terminal_lifecycle_tamper_${runId}`,
+  );
+  await registerRuntimeLaunch(setup, dispatchEnvelope, "2026-07-24T12:07:18Z");
+  const terminalLifecycle = await publishTerminalLifecycleRevision(setup, dispatchEnvelope);
+  const terminal = await prepareTerminalReporting(setup, true);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const input = terminalApplyInput(
+    setup,
+    terminal,
+    "The runtime failure cannot derive closeout from tampered terminal lifecycle bytes.",
+  );
+  await tamperStoredEnvelopeOnly(setup.runRoot, terminalLifecycle.artifact_path, (document) => {
+    document.state = "failed";
+    document.failure = {
+      kind: "validation_failed",
+      detail: "SYNTHETIC forged terminal lifecycle failure.",
+      retryable: true,
+    };
+    (document.timestamps as Record<string, unknown>).ended_at = "2026-07-24T12:07:30Z";
+  });
+  const beforeApply = await snapshotRunTree(setup.runRoot);
+  await assert.rejects(
+    runtime.apply(input),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "apply.runtime_failure_source_tampered",
+  );
+  assert.deepEqual(await snapshotRunTree(setup.runRoot), beforeApply);
+  const manifestAfter = JSON.parse(
+    await readFile(path.join(setup.runRoot, "manifest.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.equal(manifestAfter.status, "researching");
+  const artifactRefs = Array.isArray(manifestAfter.artifact_refs)
+    ? manifestAfter.artifact_refs
+    : [];
+  assert.ok(!artifactRefs.includes("report.json"));
+  await assertNoTerminalReportOutputs(setup.runRoot);
+});
+
+test("runtime failure prepare rejects tampered already-terminal lane result source before writes", async (contextTest) => {
+  const runId = "runtime-failure-terminal-result-source-tamper";
+  const state = await setupDiscoverySynthesisRuntimeRun(contextTest, runId);
+  await publishDiscoverySynthesisReadiness(state);
+  const adaptationBundle = await publishRuntimeFailureAuthorityForDiscovery(state);
+  const loaded = await state.store.load(runId);
+  const setupLike = {
+    ...state,
+    currentManifest: loaded.manifest as unknown as Record<string, unknown>,
+    adaptationBundle,
+    discoveryBundle: state.bundle,
+    researchLanguage: "en-US",
+  } as unknown as Awaited<ReturnType<typeof setupPersistedRun>>;
+  const terminal = await prepareTerminalReporting(
+    setupLike,
+    true,
+    undefined,
+    "en-US",
+    "2026-07-27T20:14:00Z",
+  );
+  excludeFormalEvidence(
+    terminal,
+    bundleEnvelopesByType(
+      state.bundle,
+      "startup_opportunity.evidence.discovery_candidate.current",
+    ).map((envelope) => envelope.artifact_path),
+  );
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+  await tamperStoredEnvelopeOnly(state.runRoot, G22_GENERATION_LANE, (document) => {
+    document.status = "failed";
+    document.limitations = [
+      ...((document.limitations as string[]) ?? []),
+      "SYNTHETIC forged terminal lane result bytes.",
+    ];
+  });
+  const beforeApply = await snapshotRunTree(state.runRoot);
+  await assert.rejects(
+    runtime.apply(
+      terminalApplyInput(
+        setupLike,
+        terminal,
+        "The runtime failure cannot derive closeout from tampered terminal result bytes.",
+        {
+          createdAt: "2026-07-27T20:15:00Z",
+          checkpointCreatedAt: "2026-07-27T20:16:00Z",
+        },
+      ),
+    ),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      ["apply.runtime_failure_source_tampered", "adaptation.stored_content_mismatch"].includes(
+        error.code,
+      ),
+  );
+  assert.deepEqual(await snapshotRunTree(state.runRoot), beforeApply);
+  const manifestAfter = JSON.parse(
+    await readFile(path.join(state.runRoot, "manifest.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.notEqual(manifestAfter.status, "failed");
+  await assertNoTerminalReportOutputs(state.runRoot);
+});
+
+test("runtime failure recovery rejects tampered terminal source artifacts before writes", async (contextTest) => {
+  await contextTest.test("terminal-lifecycle", async (subcontext) => {
+    const runId = "runtime-failure-terminal-lifecycle-recovery-tamper";
+    const setup = await setupPersistedRun(subcontext, runId, "runtime-failure");
+    const launchEnvelopes = incompleteExecutionWaveEnvelopes(runId, setup.plan);
+    const dispatchEnvelope = launchEnvelopes.find(
+      (envelope) =>
+        envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+    );
+    assert.ok(dispatchEnvelope);
+    await publishRuntimeEnvelopesAsFormalStage(
+      setup,
+      launchEnvelopes,
+      `request_g0_4_terminal_lifecycle_recovery_tamper_${runId}`,
+    );
+    await registerRuntimeLaunch(setup, dispatchEnvelope, "2026-07-24T12:07:18Z");
+    const terminalLifecycle = await publishTerminalLifecycleRevision(setup, dispatchEnvelope);
+    const terminal = await prepareTerminalReporting(setup, true);
+    const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+    const input = terminalApplyInput(
+      setup,
+      terminal,
+      "The runtime failure receipt cannot recover from tampered terminal lifecycle bytes.",
+    );
+    await assert.rejects(
+      runtime.apply({ ...input, faultAt: "after_intent" }),
+      (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+    );
+    await tamperStoredEnvelopeOnly(setup.runRoot, terminalLifecycle.artifact_path, (document) => {
+      document.state = "failed";
+      document.failure = {
+        kind: "validation_failed",
+        detail: "SYNTHETIC forged terminal lifecycle recovery failure.",
+        retryable: true,
+      };
+      (document.timestamps as Record<string, unknown>).ended_at = "2026-07-24T12:07:30Z";
+    });
+    const beforeRecovery = await snapshotRunTree(setup.runRoot);
+    await assert.rejects(
+      setup.store.load(runId),
+      (error: unknown) =>
+        error instanceof StoreError &&
+        ["recovery.invalid_plan_operation", "write.conflict"].includes(error.code),
+    );
+    assert.deepEqual(await snapshotRunTree(setup.runRoot), beforeRecovery);
+    await assertNoTerminalReportOutputs(setup.runRoot);
+  });
+
+  await contextTest.test("terminal-lane-result", async (subcontext) => {
+    const runId = "runtime-failure-terminal-result-recovery-tamper";
+    const state = await setupDiscoverySynthesisRuntimeRun(subcontext, runId);
+    await publishDiscoverySynthesisReadiness(state);
+    const adaptationBundle = await publishRuntimeFailureAuthorityForDiscovery(state);
+    const loaded = await state.store.load(runId);
+    const setupLike = {
+      ...state,
+      currentManifest: loaded.manifest as unknown as Record<string, unknown>,
+      adaptationBundle,
+      discoveryBundle: state.bundle,
+      researchLanguage: "en-US",
+    } as unknown as Awaited<ReturnType<typeof setupPersistedRun>>;
+    const terminal = await prepareTerminalReporting(
+      setupLike,
+      true,
+      undefined,
+      "en-US",
+      "2026-07-27T20:14:00Z",
+    );
+    excludeFormalEvidence(
+      terminal,
+      bundleEnvelopesByType(
+        state.bundle,
+        "startup_opportunity.evidence.discovery_candidate.current",
+      ).map((envelope) => envelope.artifact_path),
+    );
+    const runtime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+    await assert.rejects(
+      runtime.apply({
+        ...terminalApplyInput(
+          setupLike,
+          terminal,
+          "The runtime failure receipt binds the authenticated terminal result source set.",
+          {
+            createdAt: "2026-07-27T20:15:00Z",
+            checkpointCreatedAt: "2026-07-27T20:16:00Z",
+          },
+        ),
+        faultAt: "after_intent",
+      }),
+      (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+    );
+    await tamperStoredEnvelopeOnly(state.runRoot, G22_GENERATION_LANE, (document) => {
+      document.status = "failed";
+      document.limitations = [
+        ...((document.limitations as string[]) ?? []),
+        "SYNTHETIC forged terminal lane result recovery bytes.",
+      ];
+    });
+    const beforeRecovery = await snapshotRunTree(state.runRoot);
+    await assert.rejects(
+      state.store.load(runId),
+      (error: unknown) =>
+        error instanceof StoreError &&
+        ["recovery.invalid_plan_operation", "write.conflict"].includes(error.code),
+    );
+    assert.deepEqual(await snapshotRunTree(state.runRoot), beforeRecovery);
+    const manifestAfter = JSON.parse(
+      await readFile(path.join(state.runRoot, "manifest.json"), "utf8"),
+    ) as Record<string, unknown>;
+    assert.notEqual(manifestAfter.status, "failed");
+    await assertNoTerminalReportOutputs(state.runRoot);
+  });
+});
+
+test("runtime failure with no active discovery units is terminal and replay-safe", async (contextTest) => {
+  const runId = "runtime-failure-zero-active-discovery";
+  const setup = await setupPersistedRun(contextTest, runId, "runtime-failure-discovery");
+  const preStatus = await setup.store.status(runId);
+  assert.deepEqual(preStatus.manifest.active_units, [], JSON.stringify(preStatus, null, 2));
+  assert.equal(preStatus.observability.laneTimings.length, 0, JSON.stringify(preStatus, null, 2));
+
+  const terminal = await prepareTerminalReporting(
+    setup,
+    true,
+    undefined,
+    setup.researchLanguage,
+    "2026-07-27T18:03:00Z",
+  );
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+  const input = terminalApplyInput(
+    setup,
+    terminal,
+    "The runtime failure prevents a research conclusion.",
+    {
+      createdAt: "2026-07-27T18:01:00Z",
+      checkpointCreatedAt: "2026-07-27T18:02:00Z",
+    },
+  );
+  const applied = await runtime.apply(input);
+  assert.equal(applied.status, "applied", JSON.stringify(applied, null, 2));
+  assert.equal(applied.terminalReport?.status, "published", JSON.stringify(applied, null, 2));
+  assert.equal(
+    (await runtime.apply(input)).status,
+    "idempotent_replay",
+    JSON.stringify(applied, null, 2),
+  );
+
+  const status = await setup.store.status(runId);
+  assert.equal(status.manifest.status, "failed", JSON.stringify(status, null, 2));
+  assert.deepEqual(status.manifest.active_units, [], JSON.stringify(status, null, 2));
+  assert.deepEqual(status.manifest.failed_units, [], JSON.stringify(status, null, 2));
+  assert.deepEqual(status.manifest.pending_adaptation_refs, [], JSON.stringify(status, null, 2));
+  assert.equal(status.terminalReportDisposition, "ready", JSON.stringify(status, null, 2));
+  assert.equal(status.observability.laneTimings.length, 0, JSON.stringify(status, null, 2));
+});
+
+test("runtime failure preserves published Discovery readiness and research semantics", async (contextTest) => {
+  const runId = "runtime-failure-preserves-discovery-semantics";
+  const state = await setupDiscoverySynthesisRuntimeRun(contextTest, runId);
+  await publishDiscoverySynthesisReadiness(state);
+  const preservedRefs = [
+    ...new Set<string>([
+      G23_READINESS,
+      G23_READINESS_GAP,
+      G22_FAN_IN,
+      G22_DEMAND_R2,
+      G22_RETAINED_PRE_CANDIDATE,
+      G22_WATCHLIST_PRE_CANDIDATE,
+      G22_REJECTED_PRE_CANDIDATE,
+      G22_GENERATION_LANE,
+      G22_EVALUATION_LANE,
+      G22_GENERATION_CLAIM,
+      G22_EVALUATION_CLAIM,
+      G22_JUDGMENT,
+      G22_DEMAND_EVALUATION_JUDGMENT,
+      G22_GENERATION_MANIFEST,
+      G22_EVALUATION_MANIFEST,
+      ...bundleEnvelopesByType(
+        state.bundle,
+        "startup_opportunity.evidence.discovery_candidate.current",
+      ).map((envelope) => envelope.artifact_path),
+    ]),
+  ].sort();
+  const beforeBytes = new Map(
+    await Promise.all(
+      preservedRefs.map(
+        async (artifactRef): Promise<[string, string]> => [
+          artifactRef,
+          await readFile(path.join(state.runRoot, artifactRef), "utf8"),
+        ],
+      ),
+    ),
+  );
+  const readinessBefore = JSON.parse(
+    beforeBytes.get(G23_READINESS) ?? "",
+  ) as FormalArtifactEnvelope;
+  const readinessDocument = readinessBefore.document as Record<string, unknown>;
+  assert.ok(
+    (readinessDocument.question_coverage as Record<string, unknown>[]).every(
+      (coverage) => coverage.status === "answered",
+    ),
+    JSON.stringify(readinessDocument.question_coverage, null, 2),
+  );
+  assert.ok((readinessDocument.candidate_roles as Record<string, unknown>[]).length > 0);
+  assert.ok((readinessDocument.pre_candidate_roles as Record<string, unknown>[]).length > 0);
+  assert.deepEqual(readinessDocument.commercial_signal_gate, {
+    demand_signal: true,
+    buyer_signal: false,
+    purchase_signal: false,
+    decision: "continue_research",
+  });
+  const judgmentBefore = JSON.parse(
+    beforeBytes.get(G22_DEMAND_EVALUATION_JUDGMENT) ?? "",
+  ) as FormalArtifactEnvelope;
+  const judgmentDocument = judgmentBefore.document as Record<string, unknown>;
+  assert.equal(judgmentDocument.judgment_signal, "opposed");
+  assert.ok((judgmentDocument.opposing_refs as string[]).includes(G22_EVALUATION_CLAIM));
+
+  const adaptationBundle = await publishRuntimeFailureAuthorityForDiscovery(state);
+  const loaded = await state.store.load(runId);
+  const setupLike = {
+    ...state,
+    currentManifest: loaded.manifest as unknown as Record<string, unknown>,
+    adaptationBundle,
+    discoveryBundle: state.bundle,
+    researchLanguage: "en-US",
+  } as unknown as Awaited<ReturnType<typeof setupPersistedRun>>;
+  const terminal = await prepareTerminalReporting(
+    setupLike,
+    true,
+    undefined,
+    "en-US",
+    "2026-07-27T20:14:00Z",
+  );
+  const formalEvidenceRefs = bundleEnvelopesByType(
+    state.bundle,
+    "startup_opportunity.evidence.discovery_candidate.current",
+  ).map((envelope) => envelope.artifact_path);
+  excludeFormalEvidence(terminal, formalEvidenceRefs);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+  await runtime
+    .apply(
+      terminalApplyInput(
+        setupLike,
+        terminal,
+        "The runtime failure is an execution blocker and not a Discovery conclusion.",
+        {
+          createdAt: "2026-07-27T20:15:00Z",
+          checkpointCreatedAt: "2026-07-27T20:16:00Z",
+        },
+      ),
+    )
+    .catch((error: unknown) => {
+      if (error instanceof StoreError) {
+        assert.fail(JSON.stringify({ code: error.code, details: error.details }, null, 2));
+      }
+      throw error;
+    });
+
+  const status = await state.store.status(runId);
+  assert.equal(status.manifest.status, "failed", JSON.stringify(status, null, 2));
+  assert.deepEqual(status.manifest.active_units, [], JSON.stringify(status, null, 2));
+  assert.deepEqual(status.manifest.failed_units, [], JSON.stringify(status, null, 2));
+  assert.equal(status.terminalReportDisposition, "ready", JSON.stringify(status, null, 2));
+  for (const artifactRef of preservedRefs) {
+    assert.equal(
+      await readFile(path.join(state.runRoot, artifactRef), "utf8"),
+      beforeBytes.get(artifactRef),
+      artifactRef,
+    );
+  }
+  const publishedEnvelopes = await Promise.all(
+    status.manifest.artifact_refs.map(
+      async (artifactRef) =>
+        JSON.parse(
+          await readFile(path.join(state.runRoot, artifactRef), "utf8"),
+        ) as FormalArtifactEnvelope,
+    ),
+  );
+  assert.equal(
+    publishedEnvelopes.filter(
+      (envelope) =>
+        envelope.artifact_type === "startup_opportunity.discovery_stage_readiness.v1" &&
+        envelope.document.stop_basis === "runtime_blocked",
+    ).length,
+    0,
+  );
+  const report = JSON.parse(
+    await readFile(path.join(state.runRoot, "report.json"), "utf8"),
+  ) as Record<string, unknown>;
+  assert.equal(
+    (report.research_conclusion as Record<string, unknown>).outcome,
+    "no_recommendation",
+  );
+  assert.equal(
+    (report.research_conclusion as Record<string, unknown>).evidence_strength,
+    "insufficient",
+  );
+  assert.deepEqual(report.sources, []);
+});
+
 test("planned commercial Task without Audit is disclosed through the full projection", async (contextTest) => {
   const runId = "runtime-failure-planned-commercial-audit-missing";
   const setup = await setupPersistedRun(contextTest, runId, "runtime-failure-discovery");
@@ -9527,6 +11269,131 @@ test("multi-record reopen binds each Event receipt independently", async (contex
     setup.store.load("runtime-multiple-event-receipt-drift"),
     (error: unknown) => error instanceof StoreError && error.code === "recovery.invalid_operation",
   );
+});
+
+test("Plan Revision preflight and apply reject forged supplied base Manifest before receipt writes", async (contextTest) => {
+  for (const operation of ["preflight", "apply"] as const) {
+    await contextTest.test(operation, async (subcontext) => {
+      const runId = `runtime-forged-base-manifest-${operation}`;
+      const setup = await setupPersistedRun(subcontext, runId);
+      const { candidateBundle } = candidateFor(setup);
+      const adaptationBundle = clone(setup.adaptationBundle);
+      const manifestEntry = mutableBundleEntry(adaptationBundle, "manifest.json");
+      manifestEntry.document.updated_at = "2026-07-24T12:06:01Z";
+      const input: ApplyPlanRevisionInput = {
+        runId,
+        adaptationBundle,
+        adaptationRefs: [DECISION_REF],
+        candidateBundle,
+        createdAt: "2026-07-24T12:08:00Z",
+        checkpointCreatedAt: "2026-07-24T12:09:00Z",
+        nextStep: "Reject a forged caller-supplied base Manifest before receipt writes.",
+        beliefSummary: {
+          current_belief: "The caller bundle must bind the exact current Manifest.",
+          evidence_that_changed_belief: [],
+          unchanged_assumptions: [],
+          remaining_disagreement: [],
+          next_decision_relevant_question: "Can a forged base Manifest generate a receipt?",
+        },
+      };
+      const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+      const before = await snapshotRunTree(setup.runRoot);
+      await assert.rejects(
+        operation === "preflight" ? runtime.preflight(input) : runtime.apply(input),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "apply.stale_input_bundle",
+      );
+      assert.deepEqual(await snapshotRunTree(setup.runRoot), before);
+      assert.equal(
+        (await readdir(path.join(setup.runRoot, ".store/operations"))).filter((name) =>
+          name.startsWith("plan-revision-"),
+        ).length,
+        0,
+      );
+    });
+  }
+});
+
+test("Plan Revision apply rejects forged supplied Manifest before pending recovery writes", async (contextTest) => {
+  for (const faultAt of ["after_manifest_update", "after_checkpoint_publish"] as const) {
+    await contextTest.test(`revision-${faultAt}`, async (subcontext) => {
+      const runId = `runtime-forged-pending-recovery-${faultAt.replaceAll("_", "-")}`;
+      const setup = await setupPersistedRun(subcontext, runId);
+      const { candidateBundle } = candidateFor(setup);
+      const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+      const baseInput: ApplyPlanRevisionInput = {
+        runId,
+        adaptationBundle: setup.adaptationBundle,
+        adaptationRefs: [DECISION_REF],
+        candidateBundle,
+        createdAt: "2026-07-24T12:08:00Z",
+        checkpointCreatedAt: "2026-07-24T12:09:00Z",
+        nextStep: "Leave an incomplete pending Plan operation for forged retry testing.",
+        beliefSummary: {
+          current_belief: "A legal Plan apply may be interrupted after Manifest CAS.",
+          evidence_that_changed_belief: [],
+          unchanged_assumptions: [],
+          remaining_disagreement: [],
+          next_decision_relevant_question:
+            "Can a forged caller Manifest trigger pending recovery writes?",
+        },
+      };
+      await assert.rejects(
+        runtime.apply({ ...baseInput, faultAt }),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+      const beforeForgedRetry = await snapshotRunTree(setup.runRoot);
+      const forgedAdaptationBundle = clone(setup.adaptationBundle);
+      mutableBundleEntry(forgedAdaptationBundle, "manifest.json").document.updated_at =
+        "2026-07-24T12:06:01Z";
+
+      await assert.rejects(
+        runtime.apply({ ...baseInput, adaptationBundle: forgedAdaptationBundle }),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "apply.stale_input_bundle",
+      );
+      assert.deepEqual(await snapshotRunTree(setup.runRoot), beforeForgedRetry);
+    });
+
+    await contextTest.test(`terminal-${faultAt}`, async (subcontext) => {
+      const runId = `runtime-forged-terminal-pending-recovery-${faultAt.replaceAll("_", "-")}`;
+      const setup = await setupPersistedRun(subcontext, runId, "runtime-failure");
+      const launchEnvelopes = incompleteExecutionWaveEnvelopes(runId, setup.plan);
+      const dispatchEnvelope = launchEnvelopes.find(
+        (envelope) =>
+          envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+      );
+      assert.ok(dispatchEnvelope);
+      await publishRuntimeEnvelopesAsFormalStage(
+        setup,
+        launchEnvelopes,
+        `request_g0_4_forged_terminal_pending_${faultAt}`,
+      );
+      await registerRuntimeLaunch(setup, dispatchEnvelope, "2026-07-24T12:07:18Z");
+      const terminal = await prepareTerminalReporting(setup, true);
+      const runtime = await createPlanRevisionRuntime(repositoryRoot, setup.runsRoot);
+      const baseInput = terminalApplyInput(
+        setup,
+        terminal,
+        "The legal terminal runtime failure may be interrupted after Manifest CAS.",
+      );
+      await assert.rejects(
+        runtime.apply({ ...baseInput, faultAt }),
+        (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+      );
+      const beforeForgedRetry = await snapshotRunTree(setup.runRoot);
+      const forgedAdaptationBundle = clone(baseInput.adaptationBundle);
+      mutableBundleEntry(forgedAdaptationBundle, "manifest.json").document.updated_at =
+        "2026-07-24T12:06:01Z";
+
+      await assert.rejects(
+        runtime.apply({ ...baseInput, adaptationBundle: forgedAdaptationBundle }),
+        (error: unknown) =>
+          error instanceof StoreError && error.code === "apply.stale_input_bundle",
+      );
+      assert.deepEqual(await snapshotRunTree(setup.runRoot), beforeForgedRetry);
+    });
+  }
 });
 
 test("Plan Revision apply is CAS-safe, immutable, and idempotent on a real Run", async (contextTest) => {

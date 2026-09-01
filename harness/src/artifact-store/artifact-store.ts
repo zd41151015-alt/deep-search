@@ -193,6 +193,48 @@ function isEnvelope(value: unknown): value is FormalArtifactEnvelope {
   );
 }
 
+export function isPlanRuntimeOwnedCloseoutEnvelope(envelope: FormalArtifactEnvelope): boolean {
+  if (envelope.artifact_type === "startup_opportunity.execution_stage_closeout.v1") {
+    return true;
+  }
+  if (envelope.artifact_type !== "startup_opportunity.lane_lifecycle.v1") {
+    return false;
+  }
+  const failure = isRecord(envelope.document.failure) ? envelope.document.failure : null;
+  return (
+    Number(envelope.document.revision) > 1 &&
+    typeof envelope.document.parent_lifecycle_ref === "string" &&
+    envelope.document.state === "failed" &&
+    failure?.kind === "runtime_blocked"
+  );
+}
+
+function assertGenericPublicationMayPublish(envelope: FormalArtifactEnvelope): void {
+  if (isPlanRuntimeOwnedCloseoutEnvelope(envelope)) {
+    throw new StoreError(
+      "artifact.plan_runtime_closeout_entry_required",
+      "runtime failure lifecycle and stage closeouts must use the PlanRuntime receipt-owned closeout entry",
+      { artifactPath: envelope.artifact_path, artifactType: envelope.artifact_type },
+    );
+  }
+}
+
+function assertPlanRuntimeCloseoutPublication(envelope: FormalArtifactEnvelope): void {
+  if (!isPlanRuntimeOwnedCloseoutEnvelope(envelope)) {
+    throw new StoreError(
+      "artifact.plan_runtime_closeout_type_mismatch",
+      "the PlanRuntime closeout publisher accepts only runtime-failure closeout Artifacts",
+      { artifactPath: envelope.artifact_path, artifactType: envelope.artifact_type },
+    );
+  }
+}
+
+function isPlanRuntimeCloseoutBundle(receipt: ArtifactBundleOperationReceipt): boolean {
+  return (
+    receipt.envelopes.length > 0 && receipt.envelopes.every(isPlanRuntimeOwnedCloseoutEnvelope)
+  );
+}
+
 function hasExactlyKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
   const actual = Object.keys(value).sort();
   const sortedExpected = [...expected].sort();
@@ -838,6 +880,7 @@ export class ArtifactStore {
         "terminal report sources must use the atomic terminal Plan closeout entry",
       );
     }
+    assertGenericPublicationMayPublish(input.envelope);
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
@@ -875,6 +918,9 @@ export class ArtifactStore {
         "terminal report sources must use the atomic terminal Plan closeout entry",
       );
     }
+    for (const envelope of input.envelopes) {
+      assertGenericPublicationMayPublish(envelope);
+    }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
@@ -886,6 +932,7 @@ export class ArtifactStore {
     runRoot: string,
     input: PublishArtifactBundleInput,
     referenceContext: DocumentBundleReferenceContext = {},
+    dedicatedPlanRuntimeCloseout = false,
   ): Promise<PublishArtifactBundleResult> {
     if (
       input.envelopes.some(
@@ -898,7 +945,25 @@ export class ArtifactStore {
         "Dispatch launch registration must use the dedicated atomic registry publisher",
       );
     }
-    return this.publishBundlePreparedLocked(runRoot, input, referenceContext);
+    for (const envelope of input.envelopes) {
+      if (dedicatedPlanRuntimeCloseout) assertPlanRuntimeCloseoutPublication(envelope);
+      else assertGenericPublicationMayPublish(envelope);
+    }
+    return this.publishBundlePreparedLocked(
+      runRoot,
+      input,
+      referenceContext,
+      false,
+      dedicatedPlanRuntimeCloseout,
+    );
+  }
+
+  async publishPlanRuntimeCloseoutBundleLocked(
+    runRoot: string,
+    input: PublishArtifactBundleInput,
+    referenceContext: DocumentBundleReferenceContext = {},
+  ): Promise<PublishArtifactBundleResult> {
+    return this.publishBundleLocked(runRoot, input, referenceContext, true);
   }
 
   async publishDispatchLaunchBundleLocked(
@@ -939,6 +1004,7 @@ export class ArtifactStore {
     input: PublishArtifactBundleInput,
     referenceContext: DocumentBundleReferenceContext = {},
     dedicatedDispatchLaunch = false,
+    dedicatedPlanRuntimeCloseout = false,
   ): Promise<PublishArtifactBundleResult> {
     validateRunId(input.runId);
     await assertRunIsCurrentContinuationLeaf(this.runsRoot, input.runId);
@@ -971,6 +1037,8 @@ export class ArtifactStore {
           "research handoffs must use the target-owned exact capture operation",
         );
       }
+      if (dedicatedPlanRuntimeCloseout) assertPlanRuntimeCloseoutPublication(envelope);
+      else assertGenericPublicationMayPublish(envelope);
       this.validateEnvelopeBoundary(input.runId, envelope);
     }
     await this.validateEnvelopeSetReferences(runRoot, input.envelopes, referenceContext);
@@ -1019,7 +1087,13 @@ export class ArtifactStore {
       artifacts.push(
         dedicatedDispatchLaunch
           ? await this.publishPreparedLocked(runRoot, { runId: input.runId, envelope }, true)
-          : await this.publishLocked(runRoot, { runId: input.runId, envelope }, true),
+          : await this.publishLocked(
+              runRoot,
+              { runId: input.runId, envelope },
+              true,
+              {},
+              dedicatedPlanRuntimeCloseout,
+            ),
       );
     }
     return {
@@ -1285,6 +1359,7 @@ export class ArtifactStore {
     input: PublishArtifactInput,
     referencesPrevalidated = false,
     referenceContext: DocumentBundleReferenceContext = {},
+    dedicatedPlanRuntimeCloseout = false,
   ): Promise<PublishArtifactResult> {
     if (input.envelope.artifact_type === "startup_opportunity.dispatch_launch_registration.v1") {
       throw new StoreError(
@@ -1298,7 +1373,18 @@ export class ArtifactStore {
         "research handoffs must use the target-owned exact capture operation",
       );
     }
+    if (dedicatedPlanRuntimeCloseout) assertPlanRuntimeCloseoutPublication(input.envelope);
+    else assertGenericPublicationMayPublish(input.envelope);
     return this.publishPreparedLocked(runRoot, input, referencesPrevalidated, referenceContext);
+  }
+
+  async publishPlanRuntimeCloseoutLocked(
+    runRoot: string,
+    input: PublishArtifactInput,
+    referencesPrevalidated = false,
+    referenceContext: DocumentBundleReferenceContext = {},
+  ): Promise<PublishArtifactResult> {
+    return this.publishLocked(runRoot, input, referencesPrevalidated, referenceContext, true);
   }
 
   async publishResearchHandoffLocked(
@@ -1814,6 +1900,7 @@ export class ArtifactStore {
     const bundleReceipts: {
       readonly receipt: ArtifactBundleOperationReceipt;
       readonly launchBundle: DispatchLaunchBundleShape | null;
+      readonly planRuntimeCloseoutBundle: boolean;
     }[] = [];
     for (const entry of (await readdir(operationDirectory)).sort()) {
       if (!entry.startsWith("bundle-") || !entry.endsWith(".json")) continue;
@@ -1826,6 +1913,15 @@ export class ArtifactStore {
       );
       for (const envelope of receipt.envelopes) this.validateEnvelopeBoundary(runId, envelope);
       const launchBundle = dispatchLaunchBundleShape(receipt.envelopes);
+      const hasPlanRuntimeCloseout = receipt.envelopes.some(isPlanRuntimeOwnedCloseoutEnvelope);
+      const planRuntimeCloseoutBundle = isPlanRuntimeCloseoutBundle(receipt);
+      if (hasPlanRuntimeCloseout && !planRuntimeCloseoutBundle) {
+        throw new StoreError(
+          "recovery.plan_runtime_closeout_bundle_invalid",
+          "PlanRuntime closeout bundle receipts must contain only PlanRuntime-owned closeout Artifacts",
+          { path: `.store/operations/${entry}` },
+        );
+      }
       if (
         launchBundle === null &&
         receipt.envelopes.some(
@@ -1839,7 +1935,7 @@ export class ArtifactStore {
           { path: `.store/operations/${entry}` },
         );
       }
-      bundleReceipts.push({ receipt, launchBundle });
+      bundleReceipts.push({ receipt, launchBundle, planRuntimeCloseoutBundle });
     }
     const operations: {
       readonly receiptPath: string;
@@ -1851,6 +1947,7 @@ export class ArtifactStore {
         | "recover"
         | "restore"
         | "discard"
+        | "defer_plan_runtime_closeout"
         | "ignore_invalid_checkpoint";
     }[] = [];
     for (const entry of (await readdir(operationDirectory)).sort()) {
@@ -1863,6 +1960,7 @@ export class ArtifactStore {
       ) as unknown;
       const receipt = validateArtifactReceipt(receiptValue, entry, runId);
       this.validateEnvelopeBoundary(runId, receipt.envelope);
+      const planRuntimeCloseout = isPlanRuntimeOwnedCloseoutEnvelope(receipt.envelope);
       const hex = sha256Hex(receipt.operation_key);
       const tempPath = `.store/temp/artifact-${hex}.publish.tmp`;
       const target = await resolveRunPath(runRoot, receipt.artifact_path, { createParents: true });
@@ -1888,7 +1986,11 @@ export class ArtifactStore {
           receiptPath,
           receipt,
           tempPath,
-          action: committedOperations.has(receipt.operation_key) ? "complete" : "commit",
+          action: committedOperations.has(receipt.operation_key)
+            ? "complete"
+            : planRuntimeCloseout
+              ? "defer_plan_runtime_closeout"
+              : "commit",
         });
         continue;
       } catch (error) {
@@ -1905,7 +2007,12 @@ export class ArtifactStore {
             path: tempPath,
           });
         }
-        operations.push({ receiptPath, receipt, tempPath, action: "recover" });
+        operations.push({
+          receiptPath,
+          receipt,
+          tempPath,
+          action: planRuntimeCloseout ? "defer_plan_runtime_closeout" : "recover",
+        });
       } catch (error) {
         if (!isNodeError(error, "ENOENT")) {
           throw error;
@@ -1914,12 +2021,19 @@ export class ArtifactStore {
           receiptPath,
           receipt,
           tempPath,
-          action: committedOperations.has(receipt.operation_key) ? "restore" : "discard",
+          action: committedOperations.has(receipt.operation_key)
+            ? planRuntimeCloseout
+              ? "defer_plan_runtime_closeout"
+              : "restore"
+            : planRuntimeCloseout
+              ? "defer_plan_runtime_closeout"
+              : "discard",
         });
       }
     }
 
-    for (const { receipt, launchBundle } of bundleReceipts) {
+    for (const { receipt, launchBundle, planRuntimeCloseoutBundle } of bundleReceipts) {
+      if (planRuntimeCloseoutBundle) continue;
       const preflight = await this.preflightBundleTargetsLocked(
         runRoot,
         { runId, envelopes: receipt.envelopes },
@@ -1966,7 +2080,8 @@ export class ArtifactStore {
     }
 
     const committedRecords = await this.publicationRecordsLocked(runRoot, runId);
-    for (const { receipt, launchBundle } of bundleReceipts) {
+    for (const { receipt, launchBundle, planRuntimeCloseoutBundle } of bundleReceipts) {
+      if (planRuntimeCloseoutBundle) continue;
       for (const envelope of receipt.envelopes) {
         this.validateEnvelopeBoundary(runId, envelope);
         const target = await resolveRunPath(runRoot, envelope.artifact_path, {

@@ -1,5 +1,9 @@
 import { canonicalContentHash, canonicalJson } from "../artifact-store/canonical.js";
 import {
+  canonicalExecutionStageCloseoutId,
+  canonicalExecutionStageCloseoutPath,
+} from "../runtime/execution-stage-closeout-identity.js";
+import {
   deriveLaneScopeFormalClosure,
   laneScopeCoverageFromClosure,
 } from "../runtime/lane-delivery-closure.js";
@@ -32,6 +36,7 @@ const RUNTIME_SCHEMA_VERSIONS = new Set([
   "startup_opportunity.research_execution_plan.discovery.current",
   "startup_opportunity.dispatch_batch.discovery.current",
   "startup_opportunity.lane_lifecycle.v1",
+  "startup_opportunity.execution_stage_closeout.v1",
   "startup_opportunity.dispatch_launch_registration.v1",
   "startup_opportunity.candidate_neutral_evidence.v1",
   "startup_opportunity.discovery_generation_result.v1",
@@ -87,6 +92,7 @@ const LIFECYCLE_STATES = [
   "published",
 ] as const;
 
+const EXCEPTIONAL_TERMINAL_LIFECYCLE_STATES = new Set(["failed", "partial", "late_ignored"]);
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -1211,13 +1217,52 @@ function validateLifecycle(
       ),
     );
   }
-  const failureState = ["failed", "partial", "late_ignored"].includes(state);
+  const failureState = EXCEPTIONAL_TERMINAL_LIFECYCLE_STATES.has(state);
   if (failureState !== isRecord(lifecycle.failure)) {
     errors.push(
       issue(
         "runtime.lifecycle_failure_mismatch",
         entry.path,
         "terminal exceptional lifecycle states require failure detail and normal states forbid it",
+      ),
+    );
+  }
+  const endedAt = timestamps.ended_at;
+  if (failureState) {
+    if (typeof endedAt !== "string") {
+      errors.push(
+        issue(
+          "runtime.lifecycle_end_time_missing",
+          `${entry.path}#/timestamps/ended_at`,
+          "terminal exceptional lifecycle states require a deterministic ended_at timestamp",
+        ),
+      );
+    } else {
+      const latestProgressTimestamp = Math.max(
+        ...orderedTimestampFields
+          .map((field) => timestamps[field])
+          .filter((value): value is string => typeof value === "string")
+          .map((value) => Date.parse(value)),
+      );
+      if (
+        Number.isFinite(latestProgressTimestamp) &&
+        Date.parse(endedAt) < latestProgressTimestamp
+      ) {
+        errors.push(
+          issue(
+            "runtime.lifecycle_time_order_invalid",
+            `${entry.path}#/timestamps/ended_at`,
+            "lifecycle ended_at cannot precede the latest populated lifecycle timestamp",
+          ),
+        );
+      }
+    }
+  } else if (endedAt !== null) {
+    errors.push(
+      issue(
+        "runtime.lifecycle_end_time_mismatch",
+        `${entry.path}#/timestamps/ended_at`,
+        "normal lifecycle states must leave ended_at null",
       ),
     );
   }
@@ -1301,6 +1346,340 @@ function validateLifecycle(
   if (stateIndex >= 0 && parentIndex >= 0 && stateIndex < parentIndex) {
     errors.push(
       issue("runtime.lifecycle_state_regression", entry.path, "lifecycle state cannot regress"),
+    );
+  }
+}
+
+function lifecycleDispositionForStageCloseout(
+  lifecycle: DeclarativeRuntimeDocument,
+): "completed" | "runtime_failed" | "failed" | "partial" | "late_ignored" | null {
+  const state = String(lifecycle.document.state);
+  if (state === "published") return "completed";
+  if (state === "partial") return "partial";
+  if (state === "late_ignored") return "late_ignored";
+  if (state === "failed") {
+    const failure = isRecord(lifecycle.document.failure) ? lifecycle.document.failure : {};
+    return failure.kind === "runtime_blocked" ? "runtime_failed" : "failed";
+  }
+  return null;
+}
+
+function resultDispositionForStageCloseout(
+  result: DeclarativeRuntimeDocument | null,
+  requiredSchema: unknown,
+  unitId: string,
+): "completed" | "failed" | "partial" | "late_ignored" | null {
+  if (
+    result === null ||
+    result.schemaVersion !== requiredSchema ||
+    result.document.unit_id !== unitId
+  ) {
+    return null;
+  }
+  const status = String(result.document.status ?? result.document.branch_status ?? "");
+  if (status === "failed") return "failed";
+  if (status === "partial") return "partial";
+  if (status === "late_ignored") return "late_ignored";
+  return "completed";
+}
+
+function latestLifecycleForStageCloseout(
+  byPath: ReadonlyMap<string, DeclarativeRuntimeDocument>,
+  dispatchTaskRef: string,
+  unitId: string,
+): DeclarativeRuntimeDocument | null {
+  const lifecycles = [...byPath.values()].filter(
+    (entry) =>
+      entry.schemaVersion === "startup_opportunity.lane_lifecycle.v1" &&
+      entry.document.dispatch_batch_ref === dispatchTaskRef &&
+      entry.document.task_ref === dispatchTaskRef &&
+      entry.document.unit_id === unitId,
+  );
+  return (
+    lifecycles
+      .sort((left, right) => {
+        const attempt = Number(left.document.attempt) - Number(right.document.attempt);
+        if (attempt !== 0) return attempt;
+        const revision = Number(left.document.revision) - Number(right.document.revision);
+        if (revision !== 0) return revision;
+        return left.path.localeCompare(right.path);
+      })
+      .at(-1) ?? null
+  );
+}
+
+function runtimeBlockingGapRefs(
+  refs: readonly string[],
+  byPath: ReadonlyMap<string, DeclarativeRuntimeDocument>,
+): readonly string[] {
+  return uniqueSorted(
+    refs.filter((ref) => {
+      const [gapPath = "", gapId = ""] = ref.split("#", 2);
+      const gap = target(byPath, gapPath);
+      if (
+        gap === null ||
+        ![
+          "startup_opportunity.gap_snapshot.discovery.plan.current",
+          "startup_opportunity.gap_snapshot.discovery.readiness.current",
+          "startup_opportunity.gap_snapshot.assessment.current",
+        ].includes(gap.schemaVersion)
+      ) {
+        return false;
+      }
+      return records(gap.document.gaps).some(
+        (candidate) =>
+          candidate.gap_id === gapId &&
+          candidate.gap_type === "runtime_blocked" &&
+          candidate.severity === "blocking",
+      );
+    }),
+  );
+}
+
+function runtimeFailureDetailFromAuthority(
+  decision: DeclarativeRuntimeDocument,
+  gapRefs: readonly string[],
+): string {
+  return canonicalJson({
+    action: "record_runtime_failure",
+    decision_ref: decision.path,
+    gap_refs: uniqueSorted(gapRefs),
+    reason: String(decision.document.reason),
+    stop_condition:
+      typeof decision.document.stop_condition === "string"
+        ? decision.document.stop_condition
+        : null,
+  });
+}
+
+function validateExecutionStageCloseout(
+  entry: DeclarativeRuntimeDocument,
+  byPath: ReadonlyMap<string, DeclarativeRuntimeDocument>,
+  errors: ValidationIssue[],
+): void {
+  const closeout = entry.document;
+  const expectedCloseoutId = canonicalExecutionStageCloseoutId(closeout);
+  const expectedPath = canonicalExecutionStageCloseoutPath(closeout);
+  if (closeout.closeout_id !== expectedCloseoutId || entry.path !== expectedPath) {
+    errors.push(
+      issue(
+        "runtime.stage_closeout_identity_invalid",
+        entry.path,
+        "stage closeout id and path must be canonical for the exact execution stage and dispatch",
+        { expectedCloseoutId, expectedPath },
+      ),
+    );
+  }
+  const execution = target(byPath, closeout.execution_plan_ref);
+  const dispatch = target(byPath, closeout.dispatch_ref);
+  const plan = target(byPath, closeout.research_plan_ref);
+  const stages = records(execution?.document.stages);
+  const stage = stages[Number(closeout.stage_index)];
+  const tasks = records(dispatch?.document.tasks);
+  const lanes = records(stage?.lanes);
+  const startedAt = dispatch?.document.dispatch_requested_at ?? dispatch?.document.requested_at;
+  const failure = isRecord(closeout.failure) ? closeout.failure : {};
+  const executionTypeValid =
+    execution !== null &&
+    [
+      "startup_opportunity.research_execution_plan.discovery.current",
+      "startup_opportunity.research_execution_plan.assessment.current",
+    ].includes(execution.schemaVersion);
+  const dispatchTypeValid =
+    dispatch !== null &&
+    [
+      "startup_opportunity.dispatch_batch.discovery.current",
+      "startup_opportunity.dispatch_batch.assessment.current",
+    ].includes(dispatch.schemaVersion);
+  if (
+    !executionTypeValid ||
+    !dispatchTypeValid ||
+    plan?.schemaVersion !== "startup_opportunity.research_plan.v1" ||
+    execution.document.run_id !== closeout.run_id ||
+    execution.document.mode !== closeout.mode ||
+    execution.document.research_plan_ref !== closeout.research_plan_ref ||
+    closeout.execution_plan_hash !== canonicalContentHash(execution.document) ||
+    dispatch.document.run_id !== closeout.run_id ||
+    dispatch.document.execution_plan_ref !== closeout.execution_plan_ref ||
+    dispatch.document.research_plan_ref !== closeout.research_plan_ref ||
+    dispatch.document.stage_id !== closeout.stage_id ||
+    closeout.dispatch_hash !== canonicalContentHash(dispatch.document) ||
+    stage === undefined ||
+    stage.stage_id !== closeout.stage_id ||
+    stage.stage_kind !== closeout.stage_kind ||
+    closeout.stage_state !== "failed" ||
+    failure.kind !== "runtime_blocked" ||
+    failure.retryable !== false ||
+    startedAt !== closeout.started_at ||
+    Date.parse(String(closeout.ended_at)) < Date.parse(String(closeout.started_at)) ||
+    (entry.envelope !== null && entry.envelope.created_at !== closeout.ended_at) ||
+    !sameStringSets(
+      tasks.map((task) => String(task.unit_id)),
+      lanes.map((lane) => String(lane.unit_id)),
+    )
+  ) {
+    errors.push(
+      issue(
+        "runtime.stage_closeout_binding_invalid",
+        entry.path,
+        "stage closeout must bind the exact current execution plan, dispatch, stage, and runtime failure time",
+      ),
+    );
+    return;
+  }
+  const basisRefs = strings(closeout.basis_refs);
+  const runtimeGapRefs = runtimeBlockingGapRefs(basisRefs, byPath);
+  const decisions = basisRefs
+    .map((ref) => target(byPath, ref))
+    .filter(
+      (document): document is DeclarativeRuntimeDocument =>
+        document !== null &&
+        [
+          "startup_opportunity.adaptation_decision.discovery.current",
+          "startup_opportunity.adaptation_decision.assessment.current",
+        ].includes(document.schemaVersion) &&
+        document.document.action === "record_runtime_failure",
+    );
+  if (
+    decisions.length !== 1 ||
+    runtimeGapRefs.length === 0 ||
+    failure.detail !==
+      runtimeFailureDetailFromAuthority(decisions[0] as DeclarativeRuntimeDocument, runtimeGapRefs)
+  ) {
+    errors.push(
+      issue(
+        "runtime.stage_closeout_authority_invalid",
+        `${entry.path}#/basis_refs`,
+        "stage closeout must bind one record_runtime_failure decision and at least one blocking runtime_blocked Gap",
+      ),
+    );
+  }
+  const dispositions = records(closeout.unit_dispositions);
+  const taskByRef = new Map(
+    tasks.map((task) => [`${closeout.dispatch_ref}#${String(task.task_id)}`, task]),
+  );
+  const dispositionUnitIds = dispositions.map((disposition) => String(disposition.unit_id));
+  const dispositionTaskRefs = dispositions.map((disposition) =>
+    String(disposition.dispatch_task_ref),
+  );
+  const expectedUnitIds = tasks.map((task) => String(task.unit_id));
+  const expectedTaskRefs = tasks.map((task) => `${closeout.dispatch_ref}#${String(task.task_id)}`);
+  if (
+    dispositions.length !== tasks.length ||
+    new Set(dispositionUnitIds).size !== dispositionUnitIds.length ||
+    new Set(dispositionTaskRefs).size !== dispositionTaskRefs.length ||
+    !sameStringSets(dispositionUnitIds, expectedUnitIds) ||
+    !sameStringSets(dispositionTaskRefs, expectedTaskRefs)
+  ) {
+    errors.push(
+      issue(
+        "runtime.stage_closeout_unit_coverage_invalid",
+        `${entry.path}#/unit_dispositions`,
+        "stage closeout must cover each dispatched unit exactly once",
+      ),
+    );
+  }
+  const expectedStarted: string[] = [];
+  const expectedCompleted: string[] = [];
+  const expectedFailed: string[] = [];
+  const expectedIncomplete: string[] = [];
+  const expectedNotStarted: string[] = [];
+  for (const disposition of dispositions) {
+    const unitId = String(disposition.unit_id);
+    const taskRef = String(disposition.dispatch_task_ref);
+    const task = taskByRef.get(taskRef);
+    const latestLifecycle =
+      task === undefined ? null : latestLifecycleForStageCloseout(byPath, taskRef, unitId);
+    const lifecycle = target(byPath, disposition.lifecycle_ref);
+    const result = target(
+      byPath,
+      typeof task?.allowed_output_path === "string"
+        ? task.allowed_output_path
+        : task?.submission_path,
+    );
+    const lifecycleExpectedDisposition =
+      latestLifecycle === null ? null : lifecycleDispositionForStageCloseout(latestLifecycle);
+    const resultExpectedDisposition = resultDispositionForStageCloseout(
+      result,
+      task?.required_artifact_schema,
+      unitId,
+    );
+    const expectedDisposition = lifecycleExpectedDisposition ?? resultExpectedDisposition;
+    const expectedLifecycleRef =
+      lifecycleExpectedDisposition === null ? null : (latestLifecycle?.path ?? null);
+    if (
+      task === undefined ||
+      task.unit_id !== unitId ||
+      disposition.dispatch_task_hash !== closeout.dispatch_hash ||
+      (disposition.lifecycle_ref === null) !== (disposition.lifecycle_hash === null) ||
+      disposition.lifecycle_ref !== expectedLifecycleRef ||
+      (disposition.lifecycle_ref === null &&
+        expectedDisposition === null &&
+        disposition.disposition !== "not_started") ||
+      (disposition.lifecycle_ref !== null &&
+        (lifecycle?.schemaVersion !== "startup_opportunity.lane_lifecycle.v1" ||
+          lifecycle.document.dispatch_batch_ref !== taskRef ||
+          lifecycle.document.task_ref !== taskRef ||
+          lifecycle.document.dispatch_batch_hash !== closeout.dispatch_hash ||
+          lifecycle.document.unit_id !== unitId ||
+          disposition.lifecycle_hash !== canonicalContentHash(lifecycle.document) ||
+          expectedDisposition !== disposition.disposition ||
+          lifecycleDispositionForStageCloseout(lifecycle) !== expectedDisposition)) ||
+      (disposition.lifecycle_ref === null &&
+        expectedDisposition !== null &&
+        expectedDisposition !== disposition.disposition) ||
+      (disposition.disposition === "runtime_failed" &&
+        (!isRecord(lifecycle?.document.failure) ||
+          lifecycle.document.failure.kind !== "runtime_blocked" ||
+          lifecycle.document.failure.retryable !== false ||
+          lifecycle.document.failure.detail !== failure.detail ||
+          !isRecord(lifecycle.document.timestamps) ||
+          lifecycle.document.timestamps.ended_at !== closeout.ended_at))
+    ) {
+      errors.push(
+        issue(
+          "runtime.stage_closeout_unit_disposition_invalid",
+          `${entry.path}#/unit_dispositions/${unitId}`,
+          "stage closeout unit disposition must match exact Dispatch and latest lifecycle state",
+        ),
+      );
+      continue;
+    }
+    if (disposition.lifecycle_ref !== null || disposition.disposition !== "not_started") {
+      expectedStarted.push(unitId);
+    }
+    if (disposition.disposition === "completed") {
+      expectedCompleted.push(unitId);
+    } else {
+      expectedIncomplete.push(unitId);
+    }
+    if (["runtime_failed", "failed"].includes(String(disposition.disposition))) {
+      expectedFailed.push(unitId);
+    }
+    if (disposition.disposition === "not_started") {
+      expectedNotStarted.push(unitId);
+    }
+  }
+  if (
+    !sameStringSets(strings(closeout.started_unit_ids), expectedStarted) ||
+    !sameStringSets(strings(closeout.completed_unit_ids), expectedCompleted) ||
+    !sameStringSets(strings(closeout.failed_unit_ids), expectedFailed) ||
+    !sameStringSets(strings(closeout.incomplete_unit_ids), expectedIncomplete) ||
+    !sameStringSets(strings(closeout.not_started_unit_ids), expectedNotStarted)
+  ) {
+    errors.push(
+      issue(
+        "runtime.stage_closeout_unit_sets_invalid",
+        entry.path,
+        "stage closeout summary unit sets must be exact projections of unit dispositions",
+        {
+          expectedStarted: uniqueSorted(expectedStarted),
+          expectedCompleted: uniqueSorted(expectedCompleted),
+          expectedFailed: uniqueSorted(expectedFailed),
+          expectedIncomplete: uniqueSorted(expectedIncomplete),
+          expectedNotStarted: uniqueSorted(expectedNotStarted),
+        },
+      ),
     );
   }
 }
@@ -2324,6 +2703,9 @@ export function validateDeclarativeRuntimeContract(
       case "startup_opportunity.lane_lifecycle.v1":
         validateLifecycle(entry, byPath, errors);
         break;
+      case "startup_opportunity.execution_stage_closeout.v1":
+        validateExecutionStageCloseout(entry, byPath, errors);
+        break;
       case "startup_opportunity.dispatch_launch_registration.v1":
         validateDispatchLaunchRegistration(entry, byPath, errors);
         break;
@@ -2374,6 +2756,32 @@ export function validateDeclarativeRuntimeContract(
           "runtime.lifecycle_revision_conflict",
           entries[0]?.path ?? "lane_lifecycle",
           "one canonical lifecycle identity can have only one root and one document per revision",
+          { paths: entries.map((entry) => entry.path).sort() },
+        ),
+      );
+    }
+  }
+  const stageCloseouts = documents.filter(
+    (entry) => entry.schemaVersion === "startup_opportunity.execution_stage_closeout.v1",
+  );
+  const closeoutsByStage = new Map<string, DeclarativeRuntimeDocument[]>();
+  for (const entry of stageCloseouts) {
+    const identity = canonicalJson({
+      runId: entry.document.run_id,
+      executionPlanRef: entry.document.execution_plan_ref,
+      dispatchRef: entry.document.dispatch_ref,
+      stageId: entry.document.stage_id,
+      revision: entry.document.revision,
+    });
+    closeoutsByStage.set(identity, [...(closeoutsByStage.get(identity) ?? []), entry]);
+  }
+  for (const entries of closeoutsByStage.values()) {
+    if (entries.length > 1) {
+      errors.push(
+        issue(
+          "runtime.stage_closeout_revision_conflict",
+          entries[0]?.path ?? "execution_stage_closeout",
+          "one execution stage dispatch can have only one terminal closeout revision",
           { paths: entries.map((entry) => entry.path).sort() },
         ),
       );

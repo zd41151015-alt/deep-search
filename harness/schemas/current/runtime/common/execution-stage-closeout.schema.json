@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://startup-opportunity.local/schemas/current/runtime/common/execution-stage-closeout.schema.json",
+  "title": "Startup Opportunity Execution Stage Closeout v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "closeout_id",
+    "revision",
+    "run_id",
+    "mode",
+    "research_plan_ref",
+    "execution_plan_ref",
+    "execution_plan_hash",
+    "dispatch_ref",
+    "dispatch_hash",
+    "stage_id",
+    "stage_kind",
+    "stage_index",
+    "stage_state",
+    "failure",
+    "started_at",
+    "ended_at",
+    "started_unit_ids",
+    "completed_unit_ids",
+    "failed_unit_ids",
+    "incomplete_unit_ids",
+    "not_started_unit_ids",
+    "unit_dispositions",
+    "basis_refs",
+    "limitations"
+  ],
+  "$defs": {
+    "stageKind": {
+      "enum": [
+        "discovery_generation",
+        "hard_gate_scan",
+        "candidate_evaluation",
+        "retained_candidate_deep_review",
+        "review",
+        "discovery_synthesis",
+        "assessment_early_kill",
+        "assessment_commercial",
+        "assessment_delivery",
+        "assessment_followup"
+      ]
+    },
+    "unitDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit_id",
+        "dispatch_task_ref",
+        "dispatch_task_hash",
+        "lifecycle_ref",
+        "lifecycle_hash",
+        "disposition"
+      ],
+      "properties": {
+        "unit_id": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+        },
+        "dispatch_task_ref": {
+          "type": "string",
+          "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json#[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "dispatch_task_hash": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+        },
+        "lifecycle_ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^artifacts/runtime/lane-lifecycle/lifecycle_[a-f0-9]{32}\\.r[1-9][0-9]*\\.json$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lifecycle_hash": {
+          "anyOf": [
+            {
+              "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "disposition": {
+          "enum": [
+            "completed",
+            "runtime_failed",
+            "failed",
+            "partial",
+            "late_ignored",
+            "not_started"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "startup_opportunity.execution_stage_closeout.v1"
+    },
+    "closeout_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "revision": {
+      "const": 1
+    },
+    "run_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/runId"
+    },
+    "mode": {
+      "enum": ["opportunity_discovery", "concept_evidence_assessment"]
+    },
+    "research_plan_ref": {
+      "$ref": "../../core/definitions.schema.json#/$defs/planRef"
+    },
+    "execution_plan_ref": {
+      "type": "string",
+      "pattern": "^plans/research-execution\\.r[1-9][0-9]*\\.json$"
+    },
+    "execution_plan_hash": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "dispatch_ref": {
+      "type": "string",
+      "pattern": "^tasks/dispatch/[A-Za-z0-9][A-Za-z0-9._-]*\\.r1\\.json$"
+    },
+    "dispatch_hash": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/sha256"
+    },
+    "stage_id": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+    },
+    "stage_kind": {
+      "$ref": "#/$defs/stageKind"
+    },
+    "stage_index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "stage_state": {
+      "const": "failed"
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "detail", "retryable"],
+      "properties": {
+        "kind": {
+          "const": "runtime_blocked"
+        },
+        "detail": {
+          "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/nonEmptyString"
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    "started_at": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+    },
+    "ended_at": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/timestamp"
+    },
+    "started_unit_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+      }
+    },
+    "completed_unit_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+      }
+    },
+    "failed_unit_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+      }
+    },
+    "incomplete_unit_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+      }
+    },
+    "not_started_unit_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/identifier"
+      }
+    },
+    "unit_dispositions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/unitDisposition"
+      }
+    },
+    "basis_refs": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "limitations": {
+      "$ref": "../../discovery/evaluation/definitions.schema.json#/$defs/uniqueStringArray"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "unit_dispositions": {
+            "type": "array",
+            "contains": {
+              "type": "object",
+              "properties": {
+                "disposition": {
+                  "const": "not_started"
+                }
+              },
+              "required": ["disposition"]
+            }
+          }
+        },
+        "required": ["unit_dispositions"]
+      },
+      "then": {
+        "properties": {
+          "not_started_unit_ids": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
+}

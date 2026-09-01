@@ -12,6 +12,7 @@ import {
 import {
   ArtifactStore,
   type FormalArtifactEnvelope,
+  isPlanRuntimeOwnedCloseoutEnvelope,
   type PublishArtifactBundleInput,
   type PublishArtifactBundleResult,
   type PublishArtifactInput,
@@ -493,7 +494,10 @@ export interface StatusRunResult {
   };
   readonly observability: {
     readonly stageTimings: readonly {
+      readonly executionPlanRef: string;
       readonly stageId: string;
+      readonly state: string;
+      readonly failureKind: string | null;
       readonly startedAt: string;
       readonly endedAt: string | null;
       readonly durationMs: number | null;
@@ -3442,30 +3446,107 @@ export class RunStore {
     const publicationRecords = await this.artifacts.publicationRecordsLocked(runRoot, runId);
     const evidenceRecords = await this.evidence.listRecords(runId);
     const events = await this.logs.listValidatedRecords(runRoot, runId, "events.jsonl");
-    const effective = formal.map((entry) => {
+    const currentArtifactRefs = new Set(manifest.artifact_refs);
+    const effective = formal.flatMap((entry) => {
+      if (!currentArtifactRefs.has(entry.path)) return [];
       const envelope = entry.document as FormalArtifactEnvelope;
-      return {
-        path: entry.path,
-        createdAt:
-          typeof envelope.created_at === "string" ? envelope.created_at : manifest.updated_at,
-        contentHash: typeof envelope.content_hash === "string" ? envelope.content_hash : "",
-        artifactType: typeof envelope.artifact_type === "string" ? envelope.artifact_type : "",
-        document: isRecord(envelope.document) ? envelope.document : entry.document,
-      };
+      return [
+        {
+          path: entry.path,
+          createdAt:
+            typeof envelope.created_at === "string" ? envelope.created_at : manifest.updated_at,
+          contentHash: typeof envelope.content_hash === "string" ? envelope.content_hash : "",
+          artifactType: typeof envelope.artifact_type === "string" ? envelope.artifact_type : "",
+          document: isRecord(envelope.document) ? envelope.document : entry.document,
+        },
+      ];
     });
-    const readinessByStage = new Map<string, string>();
+    const stageCloseoutByExactStage = new Map<
+      string,
+      {
+        readonly endedAt: string;
+        readonly state: string;
+        readonly failureKind: string | null;
+      }
+    >();
+    const stageCloseoutByExecutionStage = new Map<
+      string,
+      {
+        readonly endedAt: string;
+        readonly state: string;
+        readonly failureKind: string | null;
+      }
+    >();
+    const executionStageKey = (executionRef: unknown, stageId: unknown): string =>
+      `${String(executionRef ?? "")}#${String(stageId ?? "")}`;
+    const exactStageKey = (executionRef: unknown, stageId: unknown, dispatchRef: unknown): string =>
+      `${executionStageKey(executionRef, stageId)}#${String(dispatchRef ?? "")}`;
+    const stageFailureClassifications: Record<string, number> = {};
     for (const entry of effective) {
       if (
         entry.artifactType === "startup_opportunity.discovery_stage_readiness.v1" &&
-        typeof entry.document.stage_id === "string"
+        typeof entry.document.stage_id === "string" &&
+        typeof entry.document.execution_plan_ref === "string"
       ) {
-        readinessByStage.set(entry.document.stage_id, entry.createdAt);
+        const failureKind =
+          entry.document.stop_basis === "runtime_blocked" ? "runtime_blocked" : null;
+        stageCloseoutByExecutionStage.set(
+          executionStageKey(entry.document.execution_plan_ref, entry.document.stage_id),
+          {
+            endedAt: entry.createdAt,
+            state: String(entry.document.next_stage_readiness),
+            failureKind,
+          },
+        );
+        if (failureKind !== null) {
+          stageFailureClassifications[failureKind] =
+            (stageFailureClassifications[failureKind] ?? 0) + 1;
+        }
       }
       if (
         entry.artifactType === "startup_opportunity.assessment_stage_gate.v1" &&
-        typeof entry.document.stage_id === "string"
+        typeof entry.document.stage_id === "string" &&
+        typeof entry.document.execution_plan_ref === "string"
       ) {
-        readinessByStage.set(entry.document.stage_id, entry.createdAt);
+        const failureKind = entry.document.outcome === "runtime_blocked" ? "runtime_blocked" : null;
+        stageCloseoutByExecutionStage.set(
+          executionStageKey(entry.document.execution_plan_ref, entry.document.stage_id),
+          {
+            endedAt: entry.createdAt,
+            state: String(entry.document.outcome),
+            failureKind,
+          },
+        );
+        if (failureKind !== null) {
+          stageFailureClassifications[failureKind] =
+            (stageFailureClassifications[failureKind] ?? 0) + 1;
+        }
+      }
+      if (
+        entry.artifactType === "startup_opportunity.execution_stage_closeout.v1" &&
+        typeof entry.document.stage_id === "string" &&
+        typeof entry.document.execution_plan_ref === "string" &&
+        typeof entry.document.dispatch_ref === "string"
+      ) {
+        const failure = isRecord(entry.document.failure) ? entry.document.failure : {};
+        const failureKind =
+          failure.kind === "runtime_blocked" ? "runtime_blocked" : String(failure.kind ?? "");
+        stageCloseoutByExactStage.set(
+          exactStageKey(
+            entry.document.execution_plan_ref,
+            entry.document.stage_id,
+            entry.document.dispatch_ref,
+          ),
+          {
+            endedAt: String(entry.document.ended_at),
+            state: String(entry.document.stage_state),
+            failureKind: failureKind.length === 0 ? null : failureKind,
+          },
+        );
+        if (failureKind.length > 0) {
+          stageFailureClassifications[failureKind] =
+            (stageFailureClassifications[failureKind] ?? 0) + 1;
+        }
       }
     }
     const stageTimings = effective
@@ -3477,12 +3558,25 @@ export class RunStore {
       )
       .flatMap((entry) => {
         const stageId = entry.document.stage_id;
+        const executionPlanRef = entry.document.execution_plan_ref;
         const startedAt = entry.document.dispatch_requested_at ?? entry.document.requested_at;
-        if (typeof stageId !== "string" || typeof startedAt !== "string") return [];
-        const endedAt = readinessByStage.get(stageId) ?? null;
+        if (
+          typeof stageId !== "string" ||
+          typeof executionPlanRef !== "string" ||
+          typeof startedAt !== "string"
+        ) {
+          return [];
+        }
+        const closeout =
+          stageCloseoutByExactStage.get(exactStageKey(executionPlanRef, stageId, entry.path)) ??
+          stageCloseoutByExecutionStage.get(executionStageKey(executionPlanRef, stageId));
+        const endedAt = closeout?.endedAt ?? null;
         return [
           {
+            executionPlanRef,
             stageId,
+            state: closeout?.state ?? "active",
+            failureKind: closeout?.failureKind ?? null,
             startedAt,
             endedAt,
             durationMs:
@@ -3490,7 +3584,10 @@ export class RunStore {
           },
         ];
       })
-      .sort((left, right) => left.stageId.localeCompare(right.stageId));
+      .sort((left, right) => {
+        const execution = left.executionPlanRef.localeCompare(right.executionPlanRef);
+        return execution === 0 ? left.stageId.localeCompare(right.stageId) : execution;
+      });
     const lifecycle = new Map<string, (typeof effective)[number][]>();
     for (const entry of effective.filter(
       (candidate) => candidate.artifactType === "startup_opportunity.lane_lifecycle.v1",
@@ -3501,7 +3598,7 @@ export class RunStore {
         entry,
       ]);
     }
-    const failureClassifications: Record<string, number> = {};
+    const failureClassifications: Record<string, number> = { ...stageFailureClassifications };
     const laneTimings = [...lifecycle.entries()]
       .map(([unitId, history]) => {
         const attempts = new Map<string, (typeof history)[number]>();
@@ -3541,21 +3638,23 @@ export class RunStore {
               return String(values.dispatch_requested_at ?? attempt.createdAt);
             })
             .sort()[0] ?? String(timestamps.dispatch_requested_at ?? entry.createdAt);
+        const state = String(entry.document.state);
         const endedAt =
-          [
-            timestamps.published_at,
-            timestamps.formalization_validated_at,
-            timestamps.handoff_ready_at,
-            timestamps.evidence_recorded_at,
-            timestamps.agent_started_at,
-          ].find((value): value is string => typeof value === "string") ?? null;
+          state === "published"
+            ? typeof timestamps.published_at === "string"
+              ? timestamps.published_at
+              : null
+            : ["failed", "partial", "late_ignored"].includes(state) &&
+                typeof timestamps.ended_at === "string"
+              ? timestamps.ended_at
+              : null;
         return {
           unitId,
           attempt: Number(entry.document.attempt),
           executionAttemptId: String(entry.document.execution_attempt_id),
           attemptCount: attempts.size,
           retryCount: Math.max(0, attempts.size - 1),
-          state: String(entry.document.state),
+          state,
           startedAt,
           endedAt,
           durationMs:
@@ -4070,7 +4169,10 @@ export class RunStore {
     const gapEnvelope = currentEnvelopes.get(manifest.latest_gap_snapshot_ref);
     if (
       gapEnvelope === undefined ||
-      gapEnvelope.artifact_type !== "startup_opportunity.gap_snapshot.discovery.plan.current" ||
+      ![
+        "startup_opportunity.gap_snapshot.discovery.plan.current",
+        "startup_opportunity.gap_snapshot.assessment.current",
+      ].includes(gapEnvelope.artifact_type) ||
       gapEnvelope.document.based_on_plan_ref !== manifest.current_plan_ref ||
       !strings(gapEnvelope.document.stop_signals).includes("runtime_blocked")
     ) {
@@ -4547,6 +4649,13 @@ export class RunStore {
         "registered lifecycle roots must use the dedicated atomic Dispatch launch entry",
       );
     }
+    if (isPlanRuntimeOwnedCloseoutEnvelope(input.envelope)) {
+      throw new StoreError(
+        "artifact.plan_runtime_closeout_entry_required",
+        "runtime failure lifecycle and stage closeouts must use apply-plan-revision atomic closeout",
+        { artifactPath: input.envelope.artifact_path, artifactType: input.envelope.artifact_type },
+      );
+    }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
     return withRunLock(runRoot, async () => {
       const manifest = await this.readManifest(runRoot);
@@ -4691,6 +4800,18 @@ export class RunStore {
       throw new StoreError(
         "report.terminal_dedicated_entry_required",
         "terminal report sources must use apply-plan-revision atomic closeout",
+      );
+    }
+    if (input.envelopes.some(isPlanRuntimeOwnedCloseoutEnvelope)) {
+      throw new StoreError(
+        "artifact.plan_runtime_closeout_entry_required",
+        "runtime failure lifecycle and stage closeouts must use apply-plan-revision atomic closeout",
+        {
+          artifactPaths: input.envelopes
+            .filter(isPlanRuntimeOwnedCloseoutEnvelope)
+            .map((envelope) => envelope.artifact_path)
+            .sort(),
+        },
       );
     }
     const runRoot = await openRunDirectory(this.runsRoot, input.runId);
@@ -8571,6 +8692,16 @@ export class RunStore {
     if (tracked) {
       return;
     }
+    if (isPlanRuntimeOwnedCloseoutEnvelope(envelope)) {
+      throw new StoreError(
+        "artifact.plan_runtime_closeout_entry_required",
+        "runtime failure lifecycle and stage closeouts must use apply-plan-revision atomic closeout",
+        {
+          artifactPath: envelope.artifact_path,
+          artifactType: envelope.artifact_type,
+        },
+      );
+    }
     const stateFields = [
       "completed_units",
       "active_units",
@@ -9269,8 +9400,32 @@ export class RunStore {
       .filter((entry) => !entry.path.startsWith("checkpoints/"))
       .map((entry) => entry.path)
       .sort();
+    const checkpointKnownPaths = new Set([
+      ...snapshot.artifact_refs,
+      ...snapshot.ignored_late_artifact_refs,
+    ]);
+    const pendingPlanControlArtifactRefs = new Set(
+      planOperationRecovery.pendingControlArtifactRefs,
+    );
     const latestArtifactTime = formalDocuments
-      .filter((entry) => !entry.path.startsWith("checkpoints/"))
+      .filter((entry) => {
+        if (entry.path.startsWith("checkpoints/")) return false;
+        if (
+          pendingPlanControlArtifactRefs.has(entry.path) &&
+          !checkpointKnownPaths.has(entry.path)
+        ) {
+          return false;
+        }
+        if (
+          isRecord(entry.document) &&
+          isCurrentEnvelopeSchema(entry.document.schema_version) &&
+          isPlanRuntimeOwnedCloseoutEnvelope(entry.document as FormalArtifactEnvelope) &&
+          !checkpointKnownPaths.has(entry.path)
+        ) {
+          return false;
+        }
+        return true;
+      })
       .map((entry) =>
         isRecord(entry.document) && typeof entry.document.created_at === "string"
           ? entry.document.created_at
@@ -9296,6 +9451,13 @@ export class RunStore {
         isCurrentEnvelopeSchema(storedEntry.document.schema_version)
           ? (storedEntry.document as FormalArtifactEnvelope)
           : null;
+      if (
+        !checkpointKnownPaths.has(artifactPath) &&
+        ((storedEnvelope !== null && isPlanRuntimeOwnedCloseoutEnvelope(storedEnvelope)) ||
+          pendingPlanControlArtifactRefs.has(artifactPath))
+      ) {
+        continue;
+      }
       const enrichmentTerminalResult =
         storedEnvelope?.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
         storedEnvelope.artifact_type === "startup_opportunity.enrichment_branch_result.v1" &&
@@ -9335,10 +9497,6 @@ export class RunStore {
         ),
       };
     }
-    const checkpointKnownPaths = new Set([
-      ...snapshot.artifact_refs,
-      ...snapshot.ignored_late_artifact_refs,
-    ]);
     const artifactPublicationRecords = await this.artifacts.publicationRecordsLocked(
       runRoot,
       runId,
@@ -9348,9 +9506,11 @@ export class RunStore {
         (entry) =>
           !entry.path.startsWith("checkpoints/") &&
           !checkpointKnownPaths.has(entry.path) &&
+          !pendingPlanControlArtifactRefs.has(entry.path) &&
           !supersededFormationRefs.has(entry.path) &&
           isRecord(entry.document) &&
-          isCurrentEnvelopeSchema(entry.document.schema_version),
+          isCurrentEnvelopeSchema(entry.document.schema_version) &&
+          !isPlanRuntimeOwnedCloseoutEnvelope(entry.document as FormalArtifactEnvelope),
       )
       .map((entry) => entry.document as FormalArtifactEnvelope)
       .sort((left, right) => {

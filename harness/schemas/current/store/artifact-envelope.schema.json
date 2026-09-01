@@ -78,6 +78,7 @@
         "startup_opportunity.dispatch_batch.discovery.current",
         "startup_opportunity.dispatch_batch.assessment.current",
         "startup_opportunity.dispatch_launch_registration.v1",
+        "startup_opportunity.execution_stage_closeout.v1",
         "startup_opportunity.enrichment_branch_result.v1",
         "startup_opportunity.enrichment_fan_in.v1",
         "startup_opportunity.event.v1",
@@ -1815,6 +1816,30 @@
           },
           "document": {
             "$ref": "../runtime/discovery/lane-lifecycle.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {
+            "const": "startup_opportunity.execution_stage_closeout.v1"
+          }
+        },
+        "required": ["artifact_type"]
+      },
+      "then": {
+        "properties": {
+          "producer_role": {
+            "const": "harness"
+          },
+          "artifact_path": {
+            "type": "string",
+            "pattern": "^artifacts/runtime/stage-closeouts/stage_closeout_[a-f0-9]{32}\\.r1\\.json$"
+          },
+          "document": {
+            "$ref": "../runtime/common/execution-stage-closeout.schema.json"
           }
         }
       }

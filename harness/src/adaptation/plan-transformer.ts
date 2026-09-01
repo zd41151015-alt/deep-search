@@ -71,6 +71,23 @@ function moveUnitState(
   return updated as RunManifest;
 }
 
+function closeRuntimeFailureCurrentUnits(
+  manifest: RunManifest,
+  plan: Record<string, unknown>,
+): RunManifest {
+  let nextManifest = manifest;
+  for (const entry of unitEntries(plan)) {
+    const unitId = String(entry.unit.unit_id);
+    const unitState = statusOfUnit(nextManifest, unitId);
+    if (unitState === "active") {
+      nextManifest = moveUnitState(nextManifest, unitId, "failed_units");
+    } else if (unitState === "pending") {
+      nextManifest = moveUnitState(nextManifest, unitId, "invalidated_units");
+    }
+  }
+  return nextManifest;
+}
+
 function findUnit(
   plan: Record<string, unknown>,
   unitId: string,
@@ -180,6 +197,7 @@ export function transformPlan(
 
   const stableOperationKey = operationKey("apply_plan_revision", {
     parent_plan_hash: canonicalContentHash(basePlan),
+    base_manifest_hash: canonicalContentHash(manifest),
     adaptation_refs: uniqueSorted(adaptationRefs),
   });
   let nextManifest: RunManifest = {
@@ -209,6 +227,7 @@ export function transformPlan(
         limitations: uniqueSorted([...manifest.limitations, String(decision.reason)]),
       };
     } else if (decision?.action === "record_runtime_failure") {
+      nextManifest = closeRuntimeFailureCurrentUnits(nextManifest, basePlan);
       nextManifest = {
         ...nextManifest,
         status_before_clarification: null,
@@ -380,9 +399,13 @@ export function transformAssessmentPlan(
       (decision) =>
         decision.document.schema_version !==
           "startup_opportunity.adaptation_decision.assessment.current" ||
-        (!["add_unit", "stop_followup", "complete_research", "cancel_research"].includes(
-          String(decision.document.action),
-        ) &&
+        (![
+          "add_unit",
+          "stop_followup",
+          "record_runtime_failure",
+          "complete_research",
+          "cancel_research",
+        ].includes(String(decision.document.action)) &&
           decision.document.action !== "reconcile_scope"),
     )
   ) {

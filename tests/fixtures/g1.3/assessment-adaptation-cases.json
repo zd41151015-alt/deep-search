@@ -15,6 +15,7 @@
     "v6_control_receipt_recovery",
     "deep_plan_ancestry",
     "concurrent_same_operation",
+    "runtime_failure_terminal_closeout",
     "crash_boundary_recovery"
   ],
   "negative_cases": [

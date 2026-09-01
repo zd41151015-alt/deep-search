@@ -73,6 +73,7 @@ export {
 export {
   ArtifactStore,
   type FormalArtifactEnvelope,
+  isPlanRuntimeOwnedCloseoutEnvelope,
   type PublishArtifactBundleInput,
   type PublishArtifactBundleResult,
   type PublishArtifactInput,
@@ -195,6 +196,11 @@ export {
   type DispatchLaunchRegistrationRequest,
   DispatchLaunchRegistry,
 } from "./runtime/dispatch-launch-registry.js";
+export {
+  canonicalExecutionStageCloseoutId,
+  canonicalExecutionStageCloseoutPath,
+  executionStageCloseoutIdentity,
+} from "./runtime/execution-stage-closeout-identity.js";
 export {
   type CallerFormalArtifact,
   type FormalStageKind,

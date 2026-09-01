@@ -15,6 +15,7 @@ export interface AssessmentAdaptationPolicy extends Record<string, unknown> {
     "add_unit",
     "reconcile_scope",
     "stop_followup",
+    "record_runtime_failure",
     "complete_research",
     "cancel_research",
   ];
@@ -64,6 +65,7 @@ export async function loadAssessmentAdaptationPolicy(
         "add_unit",
         "reconcile_scope",
         "stop_followup",
+        "record_runtime_failure",
         "complete_research",
         "cancel_research",
       ])

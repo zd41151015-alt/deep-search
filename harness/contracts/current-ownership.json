@@ -489,6 +489,7 @@
       "ownerModules": [
         "harness/src/runtime/declarative-runtime.ts",
         "harness/src/runtime/dispatch-launch-registry.ts",
+        "harness/src/runtime/execution-stage-closeout-identity.ts",
         "harness/src/runtime/lane-lifecycle-identity.ts",
         "harness/src/runtime/discovery-stage-projections.ts",
         "harness/src/runtime/discovery-wave-contracts.ts",
@@ -499,6 +500,7 @@
       "producerModules": [
         "harness/src/commands.ts",
         "harness/src/cli.ts",
+        "harness/src/adaptation/plan-runtime.ts",
         "harness/src/evidence-store/evidence-store.ts",
         "harness/src/index.ts",
         "harness/src/runtime/artifact-scaffolds.ts",
@@ -701,6 +703,10 @@
         "store_publication",
         "terminal_reporting"
       ]
+    },
+    {
+      "modulePath": "harness/src/adaptation/plan-runtime.ts",
+      "impactFamilies": ["declarative_runtime", "run_control_planning"]
     },
     {
       "modulePath": "harness/src/commands.ts",

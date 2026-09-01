@@ -51,7 +51,7 @@
       }
     },
     "operation_identity": {
-      "const": "canonical_parent_plan_hash_and_sorted_adaptation_refs.v1"
+      "const": "canonical_parent_plan_hash_base_manifest_hash_and_sorted_adaptation_refs.v1"
     },
     "new_unit_placement": {
       "type": "object",

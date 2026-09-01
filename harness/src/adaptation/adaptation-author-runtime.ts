@@ -581,6 +581,7 @@ export class AdaptationAuthorRuntime {
         checkpointCreatedAt: request.checkpoint_created_at,
         nextStep: request.next_step,
         beliefSummary: request.belief_summary,
+        operationKey: String(prepared.publicationPlan.operation_key),
         expectedManifestContentHash: prepared.publicationPlan.manifest_content_hash as string,
         recoverPlanOperations: false,
         ...(options.faultAt === undefined ? {} : { faultAt: options.faultAt }),
@@ -758,6 +759,7 @@ export class AdaptationAuthorRuntime {
     }
     const canonicalOperationKey = operationKey("apply_plan_revision", {
       parent_plan_hash: canonicalContentHash(basePlan.document),
+      base_manifest_hash: String(publicationPlan.manifest_content_hash),
       adaptation_refs: adaptationRefs,
     });
     const expectedOperationKey =
