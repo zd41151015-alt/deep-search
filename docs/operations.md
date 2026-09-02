@@ -104,9 +104,8 @@ For repository code, schema, policy, Skill/hook, documentation-command, or toolc
 ./scripts/activate-frozen-toolchain.sh npm test
 ./scripts/activate-frozen-toolchain.sh npm run validate:schemas
 ./scripts/activate-frozen-toolchain.sh npm run validate:current-contract
-./scripts/activate-frozen-toolchain.sh npm run validate:fixtures
 ./scripts/activate-frozen-toolchain.sh npm run test:g4
 ./scripts/activate-frozen-toolchain.sh npm run test:g4:clean
 ```
 
-These are deterministic implementation checks. They are not formal research, external validation, or a whole-G4 boundary acceptance.
+These are deterministic implementation checks. They are not formal research, external validation, or a whole-G4 boundary acceptance. `npm test` already covers the fixture-validation files; use `npm run validate:fixtures` only as a focused development check.

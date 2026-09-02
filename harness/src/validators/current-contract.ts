@@ -131,6 +131,15 @@ function issue(
   return { code, message, details };
 }
 
+function testFileTokens(command: unknown): readonly string[] {
+  if (typeof command !== "string") {
+    return [];
+  }
+  return command
+    .split(/\s+/u)
+    .filter((token) => token.startsWith("tests/") && token.endsWith(".test.ts"));
+}
+
 export function collectSchemaReferences(value: unknown): readonly string[] {
   if (Array.isArray(value)) {
     return value.flatMap(collectSchemaReferences);
@@ -652,6 +661,36 @@ async function inspectOwnershipRegistry({
       issue(
         "current_contract.registry_package_missing",
         "package.json is required to verify scripts",
+      ),
+    );
+  }
+  const fullTestFiles = new Set(testFileTokens(packageScripts.test));
+  const fixtureTestFiles = testFileTokens(packageScripts["validate:fixtures"]);
+  const fixtureFilesMissingFromFullTest = fixtureTestFiles.filter(
+    (testFile) => !fullTestFiles.has(testFile),
+  );
+  if (fixtureFilesMissingFromFullTest.length > 0) {
+    issues.push(
+      issue(
+        "current_contract.fixture_suite_not_covered_by_full_test",
+        "npm test must cover every test file in validate:fixtures",
+        { testFiles: fixtureFilesMissingFromFullTest.sort() },
+      ),
+    );
+  }
+
+  const registeredFocusedTests = [
+    ...new Set(registry.families.flatMap((family) => family.focusedTests)),
+  ];
+  const focusedTestsMissingFromFullTest = registeredFocusedTests.filter(
+    (testFile) => !fullTestFiles.has(testFile),
+  );
+  if (focusedTestsMissingFromFullTest.length > 0) {
+    issues.push(
+      issue(
+        "current_contract.focused_tests_not_covered_by_full_test",
+        "npm test must cover every focused test registered by the current contract",
+        { testFiles: focusedTestsMissingFromFullTest.sort() },
       ),
     );
   }

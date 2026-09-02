@@ -287,6 +287,63 @@ test("ownership registry rejects an existing script that does not execute its fo
   );
 });
 
+test("full test entry covers every fixture and registered focused test", async () => {
+  const result = await inspectCurrentContract(repositoryRoot);
+  assert.ok(
+    !result.issues.some(
+      (candidate) =>
+        candidate.code === "current_contract.fixture_suite_not_covered_by_full_test" ||
+        candidate.code === "current_contract.focused_tests_not_covered_by_full_test",
+    ),
+    JSON.stringify(result, null, 2),
+  );
+});
+
+test("current contract rejects fixture tests missing from the full test entry", async (context) => {
+  const copyRoot = await copyCurrentContractSurface(context);
+  await mutatePackageScripts(copyRoot, (scripts) => {
+    const fullTestCommand = scripts.test;
+    assert.ok(fullTestCommand);
+    scripts.test = fullTestCommand.replace(" tests/schema-validation.test.ts", "");
+  });
+
+  const result = await inspectCurrentContract(copyRoot);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some(
+      (candidate) =>
+        candidate.code === "current_contract.fixture_suite_not_covered_by_full_test" &&
+        Array.isArray(candidate.details.testFiles) &&
+        candidate.details.testFiles.includes("tests/schema-validation.test.ts"),
+    ),
+    JSON.stringify(result, null, 2),
+  );
+});
+
+test("current contract rejects registered focused tests missing from the full test entry", async (context) => {
+  const copyRoot = await copyCurrentContractSurface(context);
+  await mutatePackageScripts(copyRoot, (scripts) => {
+    const fullTestCommand = scripts.test;
+    assert.ok(fullTestCommand);
+    scripts.test = fullTestCommand.replace(
+      " tests/batch3-quantitative-information-gain.test.ts",
+      "",
+    );
+  });
+
+  const result = await inspectCurrentContract(copyRoot);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some(
+      (candidate) =>
+        candidate.code === "current_contract.focused_tests_not_covered_by_full_test" &&
+        Array.isArray(candidate.details.testFiles) &&
+        candidate.details.testFiles.includes("tests/batch3-quantitative-information-gain.test.ts"),
+    ),
+    JSON.stringify(result, null, 2),
+  );
+});
+
 test("ownership registry rejects empty required family topology and research impact", async (context) => {
   const copyRoot = await copyCurrentContractSurface(context);
   await mutateOwnershipRegistry(copyRoot, (registry) => {
@@ -377,7 +434,6 @@ test("unknown contract impact is explicit and conservatively broad", async () =>
     "npm test",
     "npm run validate:schemas",
     "npm run validate:current-contract",
-    "npm run validate:fixtures",
     "npm run verify:skeleton",
     "git diff --check",
   ]);

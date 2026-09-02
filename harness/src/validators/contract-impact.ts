@@ -25,7 +25,6 @@ const FULL_ACCEPTANCE_COMMANDS = [
   "npm test",
   "npm run validate:schemas",
   "npm run validate:current-contract",
-  "npm run validate:fixtures",
   "npm run verify:skeleton",
   "git diff --check",
 ] as const;

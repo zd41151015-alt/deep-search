@@ -156,10 +156,10 @@ Use the smallest relevant domain test while developing, then apply these reposit
 | Research semantics, coverage, Gate, Lane delivery, or report projection | Owning focused positive/negative non-degradation regressions, then the owning `test:g*`/`p*` suites |
 | One domain schema, producer, consumer, or policy | owning `test:g*`/`p*` tests, `validate:schemas`, `validate:fixtures` |
 | Store, Manifest, canonical hash, typed refs, current Envelope/Bundle/receipt, schema loader, or current manifest | `validate:current-contract`, schema tests, Store tests, fault tests, recovery tests, integration tests, then full `npm test` |
-| Repository/toolchain/skeleton | lint, typecheck, full tests, schema/current-contract/fixture validation, skeleton doctor |
+| Repository/toolchain/skeleton | lint, typecheck, full tests including fixture coverage, schema/current-contract validation, skeleton doctor |
 | Documentation only | lint, `verify:skeleton`, `git diff --check`; broaden when commands or contract rules changed |
 
-Before committing a contract change, run `npm run lint`, `npm run typecheck`, `npm test`, `npm run validate:schemas`, `npm run validate:current-contract`, `npm run validate:fixtures`, `npm run verify:skeleton`, and `git diff --check`.
+Before committing a contract change, run `npm run lint`, `npm run typecheck`, `npm test`, `npm run validate:schemas`, `npm run validate:current-contract`, `npm run verify:skeleton`, and `git diff --check`. The full test entry includes the fixture-validation test files; use `validate:fixtures` as the focused alternative identified by the matrix, not as a second pass after `npm test`.
 
 ## Run Boundary
 

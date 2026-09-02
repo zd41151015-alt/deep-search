@@ -254,10 +254,11 @@ npm run typecheck
 npm test
 npm run validate:schemas
 npm run validate:current-contract
-npm run validate:fixtures
 npm run verify:skeleton
 git diff --check
 ```
+
+`npm test` includes every fixture-validation test file. `npm run validate:fixtures` remains a focused development command and is not repeated in the final acceptance matrix.
 
 Independent review must inspect the implementation and Research Non-Degradation separately. A failed review returns to the same implementation task for a narrow repair and focused verification. Repeat the full matrix only after the stage is again believed complete and the repair could affect broad acceptance; do not run it after every local edit.
 
