@@ -733,6 +733,19 @@ function preCandidateConfirmationSequence(record: Record<string, unknown>): numb
   return Number.isInteger(sequence) && Number(sequence) > 0 ? Number(sequence) : 0;
 }
 
+function preCandidateConfirmationIdentity(
+  record: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  return {
+    run_id: record.run_id,
+    pre_candidate_source_fan_in_ref: record.pre_candidate_source_fan_in_ref,
+    pre_candidate_source_fan_in_hash: record.pre_candidate_source_fan_in_hash,
+    pre_candidate_next_action: record.pre_candidate_next_action,
+    pre_candidate_interest_dispositions: record.pre_candidate_interest_dispositions,
+    user_confirmation_attestation: record.reason,
+  };
+}
+
 function latestPreCandidateConfirmationBySequence(
   records: readonly Record<string, unknown>[],
 ): Record<string, unknown> | null {
@@ -2132,6 +2145,13 @@ export class RunStore {
           },
         );
       }
+      const reboundManifest = await this.bindCurrentPreCandidateConfirmationStateLocked(
+        runRoot,
+        manifest,
+      );
+      if (canonicalJson(reboundManifest) !== canonicalJson(manifest)) {
+        await this.writeManifest(runRoot, reboundManifest);
+      }
       for (const ref of [...selectedPreCandidateRefs, ...followUpInterestPreCandidateRefs]) {
         validateArtifactRef(ref);
       }
@@ -2181,24 +2201,17 @@ export class RunStore {
         pre_candidate_source_fan_in_hash: input.expectedFanInHash,
         pre_candidate_next_action: input.nextAction,
         pre_candidate_interest_dispositions: dispositions,
+        user_confirmation_attestation: input.userConfirmationAttestation,
       };
+      const decisionId = `pre_candidate_interest_${sha256Hex(
+        operationKey("pre_candidate_interest_decision", decisionIdentity),
+      ).slice(0, 24)}`;
       const existingRecords = (
         await this.preCandidateInterestDecisionRecordsLocked(runRoot, input.runId)
       ).filter((record) => record.run_id === input.runId);
-      const latestExisting = latestPreCandidateConfirmationBySequence(existingRecords);
-      if (
-        latestExisting !== null &&
-        canonicalJson({
-          run_id: latestExisting.run_id,
-          pre_candidate_source_fan_in_ref: latestExisting.pre_candidate_source_fan_in_ref,
-          pre_candidate_source_fan_in_hash: latestExisting.pre_candidate_source_fan_in_hash,
-          pre_candidate_next_action: latestExisting.pre_candidate_next_action,
-          pre_candidate_interest_dispositions: latestExisting.pre_candidate_interest_dispositions,
-        }) === canonicalJson(decisionIdentity) &&
-        latestExisting.reason === input.userConfirmationAttestation &&
-        (input.confirmedAt === undefined || latestExisting.timestamp === input.confirmedAt)
-      ) {
-        const decisionRef = `decisions.jsonl#${String(latestExisting.decision_id)}`;
+      const existingExact = existingRecords.find((record) => record.decision_id === decisionId);
+      if (existingExact !== undefined) {
+        const decisionRef = `decisions.jsonl#${String(existingExact.decision_id)}`;
         const exactExisting = await this.logs.readExactRecord(
           runRoot,
           input.runId,
@@ -2222,8 +2235,8 @@ export class RunStore {
           );
         }
         if (
-          exactExisting.reason !== input.userConfirmationAttestation ||
-          (input.confirmedAt !== undefined && exactExisting.timestamp !== input.confirmedAt)
+          canonicalJson(preCandidateConfirmationIdentity(exactExisting)) !==
+          canonicalJson(decisionIdentity)
         ) {
           throw new StoreError(
             "pre_candidate_interest.confirmation_conflict",
@@ -2232,27 +2245,6 @@ export class RunStore {
           );
         }
         const existingHash = canonicalContentHash(exactExisting);
-        const nextManifest: RunManifest = {
-          ...manifest,
-          status:
-            input.nextAction === "stop_current_run"
-              ? "stopping"
-              : manifest.status === "stopping"
-                ? "researching"
-                : manifest.status,
-          current_pre_candidate_confirmation_ref: decisionRef,
-          current_pre_candidate_confirmation_hash: existingHash,
-          current_pre_candidate_confirmation_action: input.nextAction,
-          updated_at:
-            manifest.current_pre_candidate_confirmation_ref === decisionRef &&
-            manifest.current_pre_candidate_confirmation_hash === existingHash &&
-            manifest.current_pre_candidate_confirmation_action === input.nextAction
-              ? manifest.updated_at
-              : monotonicStoreTimestampAfter(manifest.updated_at),
-        };
-        if (canonicalJson(nextManifest) !== canonicalJson(manifest)) {
-          await this.writeManifest(runRoot, nextManifest);
-        }
         return {
           schemaVersion: "startup_opportunity.confirm_pre_candidates_result.v1",
           runId: input.runId,
@@ -2271,13 +2263,6 @@ export class RunStore {
       const nextSequence =
         Math.max(0, ...existingRecords.map((record) => preCandidateConfirmationSequence(record))) +
         1;
-      const decisionId = `pre_candidate_interest_${String(nextSequence).padStart(
-        6,
-        "0",
-      )}_${sha256Hex(operationKey("pre_candidate_interest_decision", decisionIdentity)).slice(
-        0,
-        16,
-      )}`;
       const decisionRef = `decisions.jsonl#${decisionId}`;
       const decision = {
         schema_version: "startup_opportunity.decision.v1",
@@ -7153,36 +7138,112 @@ export class RunStore {
       );
     }
 
-    const allowedTypes = new Set([
+    const exactEnvelopeTypes = new Map<string, FormalArtifactEnvelope[]>();
+    for (const envelope of envelopes) {
+      exactEnvelopeTypes.set(envelope.artifact_type, [
+        ...(exactEnvelopeTypes.get(envelope.artifact_type) ?? []),
+        envelope,
+      ]);
+    }
+    const exactCloseoutTypes = [
       "startup_opportunity.gap_snapshot.discovery.plan.current",
-      "startup_opportunity.gap_snapshot.discovery.readiness.current",
       "startup_opportunity.adaptation_decision.discovery.current",
       "startup_opportunity.decision_subject_snapshot.current",
-    ]);
-    const hasCancelResearch = envelopes.some(
-      (envelope) =>
-        envelope.artifact_type === "startup_opportunity.adaptation_decision.discovery.current" &&
-        envelope.document.action === "cancel_research" &&
-        envelope.document.requested_by === "user" &&
-        envelope.document.user_decision_ref === authority.ref,
-    );
-    const snapshotsAreEmptyTerminalInputs = envelopes
-      .filter(
-        (envelope) =>
-          envelope.artifact_type === "startup_opportunity.decision_subject_snapshot.current",
-      )
-      .every(
-        (envelope) =>
-          envelope.document.run_id === manifest.run_id &&
-          envelope.document.research_plan_ref === manifest.current_plan_ref &&
-          Array.isArray(envelope.document.subjects) &&
-          envelope.document.subjects.length === 0,
+    ] as const;
+    const exactCloseout =
+      envelopes.length === exactCloseoutTypes.length &&
+      exactCloseoutTypes.every(
+        (type) => (exactEnvelopeTypes.get(type)?.length ?? 0) === 1 && exactEnvelopeTypes.has(type),
+      ) &&
+      exactEnvelopeTypes.size === exactCloseoutTypes.length;
+    if (!exactCloseout) {
+      throw new StoreError(
+        "run.pre_candidate_stop_barrier",
+        "pre-candidate stop confirmation blocks new research publication until exact cancel_research terminal closeout",
+        {
+          status: manifest.status,
+          currentConfirmationRef: authority.ref,
+          artifactTypes: envelopes.map((envelope) => envelope.artifact_type).sort(),
+          artifactPaths: envelopes.map((envelope) => envelope.artifact_path).sort(),
+        },
       );
-    const closeoutPlanningOnly =
-      hasCancelResearch &&
-      snapshotsAreEmptyTerminalInputs &&
-      envelopes.every((envelope) => allowedTypes.has(envelope.artifact_type));
-    if (closeoutPlanningOnly) {
+    }
+
+    const gapEnvelope = exactEnvelopeTypes.get(
+      "startup_opportunity.gap_snapshot.discovery.plan.current",
+    )?.[0];
+    const cancelDecision = exactEnvelopeTypes.get(
+      "startup_opportunity.adaptation_decision.discovery.current",
+    )?.[0];
+    const decisionSubjectSnapshot = exactEnvelopeTypes.get(
+      "startup_opportunity.decision_subject_snapshot.current",
+    )?.[0];
+    const currentFanInRef = manifest.current_discovery_fan_in_ref;
+    const currentPlanRef = manifest.current_plan_ref;
+    if (currentFanInRef === null || currentPlanRef === null) {
+      throw new StoreError(
+        "run.pre_candidate_stop_barrier_invalid",
+        "stopping Runs require the exact current fan-in and current Plan authority",
+        { status: manifest.status, currentConfirmationRef: authority.ref },
+      );
+    }
+    const stopGap =
+      gapEnvelope === undefined ? null : (records(gapEnvelope.document.gaps)[0] ?? null);
+    const triggeredBy =
+      stopGap !== null && isRecord(stopGap.triggered_by) ? stopGap.triggered_by : null;
+    const exactStopCloseout =
+      gapEnvelope !== undefined &&
+      gapEnvelope.document.schema_version ===
+        "startup_opportunity.gap_snapshot.discovery.plan.current" &&
+      gapEnvelope.document.run_id === manifest.run_id &&
+      gapEnvelope.document.based_on_plan_ref === currentPlanRef &&
+      gapEnvelope.document.parent_snapshot_ref === null &&
+      gapEnvelope.document.revision === 1 &&
+      gapEnvelope.document.trigger_kind === "wave_completed" &&
+      gapEnvelope.document.phase === "discovery" &&
+      gapEnvelope.document.material_new_evidence_observed === false &&
+      sameStringSet(strings(gapEnvelope.document.observed_artifact_refs), [currentFanInRef]) &&
+      sameStringSet(strings(gapEnvelope.document.stop_signals), ["user_stop"]) &&
+      isRecord(stopGap) &&
+      stopGap.subject_ref === currentFanInRef &&
+      stopGap.gap_type === "user_plan_change_requested" &&
+      stopGap.detection_mode === "agent_semantic" &&
+      triggeredBy !== null &&
+      triggeredBy.declared_by === "main_agent" &&
+      sameStringSet(strings(triggeredBy.observed_artifact_refs), [currentFanInRef]) &&
+      sameStringSet(strings(stopGap.decision_impact), ["execution_validity"]) &&
+      stopGap.severity === "blocking" &&
+      sameStringSet(strings(stopGap.basis_refs), [
+        "manifest.json",
+        currentPlanRef,
+        currentFanInRef,
+      ]) &&
+      sameStringSet(strings(stopGap.evidence_refs), []) &&
+      sameStringSet(strings(stopGap.recommended_unit_types), []) &&
+      cancelDecision !== undefined &&
+      cancelDecision.document.schema_version ===
+        "startup_opportunity.adaptation_decision.discovery.current" &&
+      cancelDecision.document.run_id === manifest.run_id &&
+      cancelDecision.document.based_on_plan_ref === currentPlanRef &&
+      cancelDecision.document.action === "cancel_research" &&
+      cancelDecision.document.requested_by === "user" &&
+      cancelDecision.document.user_decision_ref === authority.ref &&
+      sameStringSet(strings(cancelDecision.document.trigger_gap_refs), []) &&
+      sameStringSet(strings(cancelDecision.document.expected_decision_impact), [
+        "execution_validity",
+      ]) &&
+      decisionSubjectSnapshot !== undefined &&
+      decisionSubjectSnapshot.document.schema_version ===
+        "startup_opportunity.decision_subject_snapshot.current" &&
+      decisionSubjectSnapshot.document.run_id === manifest.run_id &&
+      decisionSubjectSnapshot.document.mode === manifest.mode &&
+      decisionSubjectSnapshot.document.research_plan_ref === currentPlanRef &&
+      decisionSubjectSnapshot.document.parent_snapshot_ref === null &&
+      decisionSubjectSnapshot.document.parent_snapshot_hash === null &&
+      Number(decisionSubjectSnapshot.document.revision) === 1 &&
+      Array.isArray(decisionSubjectSnapshot.document.subjects) &&
+      decisionSubjectSnapshot.document.subjects.length === 0;
+    if (exactStopCloseout) {
       return;
     }
 

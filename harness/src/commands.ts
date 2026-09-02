@@ -47,7 +47,7 @@ Commands:
   create-run         Persist a confined Run and exact Scope proposal awaiting confirmation; exact technical restart provenance may declare a new current-only attempt after record_runtime_failure.
   propose-scope      Append a corrected Scope proposal without claiming user confirmation.
   confirm-scope      Bind caller-attested confirmation to the exact proposal revision/ref/hash.
-  confirm-pre-candidates Bind caller-attested user interest in current G2.2 pre-candidates before G2.3 or same-scope follow-up/stop.
+  confirm-pre-candidates Bind caller-attested user interest in current G2.2 pre-candidates before G2.3 or same-scope follow-up/stop; latest same-fan-in append order is the current authority.
   load-run           Validate, reconcile, and reopen a persisted Run.
   status-run         Read and validate current Run manifest state without recovery or mutation.
   admit-prior-input  Hash one explicitly named prior-Run artifact and append its hypothesis-only admission receipt.
@@ -121,7 +121,7 @@ Binds caller-attested user confirmation to the exact Scope proposal revision/ref
   "confirm-pre-candidates": `Usage:
   npm run harness -- confirm-pre-candidates --run-id ID --expected-fan-in-ref REF --expected-fan-in-hash HASH --next-action ACTION --user-confirmation-attestation TEXT [--selected-pre-candidate-ref REF] [--follow-up-interest-pre-candidate-ref REF] [--confirmed-at TIME] [--runs-root DIR]
 
-Binds caller-attested user interest to the exact current G2.2 fan-in. ACTION is one of proceed_with_selected, run_additional_discovery_same_scope, or stop_current_run. Repeat --selected-pre-candidate-ref only with proceed_with_selected; repeat --follow-up-interest-pre-candidate-ref to preserve orthogonal user interest in any fan-in item for same-scope follow-up research. --confirmed-at is recorded as metadata only.
+Binds caller-attested user interest to the exact current G2.2 fan-in. ACTION is one of proceed_with_selected, run_additional_discovery_same_scope, or stop_current_run. Repeat --selected-pre-candidate-ref only with proceed_with_selected; repeat --follow-up-interest-pre-candidate-ref to preserve orthogonal user interest in any fan-in item for same-scope follow-up research. The latest same-fan-in append-ordered confirmation is the current Manifest authority; --confirmed-at is recorded as metadata only.
 `,
   "load-run": `Usage:
   npm run harness -- load-run --run-id ID [--runs-root DIR] [--observe]

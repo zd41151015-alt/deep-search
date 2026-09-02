@@ -1517,6 +1517,35 @@ test("pre-candidate confirmation uses append order across all three actions and 
   assert.equal(status.manifest.current_pre_candidate_confirmation_ref, proceed.decisionRef);
   assert.equal(status.manifest.current_pre_candidate_confirmation_action, "proceed_with_selected");
 
+  const replayedStop = await state.store.confirmPreCandidates({
+    runId: state.runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: fanIn.content_hash,
+    selectedPreCandidateRefs: [],
+    followUpInterestPreCandidateRefs: [G22_WATCHLIST_PRE_CANDIDATE],
+    nextAction: "stop_current_run",
+    userConfirmationAttestation: "SYNTHETIC caller attests that the user stopped the current Run.",
+  });
+  assert.equal(replayedStop.status, "idempotent_replay");
+  assert.equal(replayedStop.decisionRef, stop.decisionRef);
+  assert.equal(replayedStop.decisionHash, stop.decisionHash);
+  assert.deepEqual(
+    (await preCandidateInterestRecords(state)).map(
+      (record) => record.pre_candidate_confirmation_sequence,
+    ),
+    [1, 2, 3],
+  );
+  const reopened = await new RunStore(
+    state.runsRoot,
+    await createArtifactValidator(repositoryRoot),
+  ).load(state.runId);
+  assert.equal(reopened.manifest.status, "researching");
+  assert.equal(reopened.manifest.current_pre_candidate_confirmation_ref, proceed.decisionRef);
+  assert.equal(
+    reopened.manifest.current_pre_candidate_confirmation_action,
+    "proceed_with_selected",
+  );
+
   const records = await preCandidateInterestRecords(state);
   const stopRecord = records.find(
     (record) => `decisions.jsonl#${String(record.decision_id)}` === stop.decisionRef,
@@ -1701,6 +1730,42 @@ test("stop_current_run blocks new research while exact cancel closeout and repla
   const gap = preCandidateStopGapEnvelope(state);
   const cancelDecision = preCandidateCancelDecisionEnvelope(state, stop.decisionRef);
   const snapshot = emptyDecisionSubjectSnapshotEnvelope(state);
+  const exactCloseoutBundle = [gap, cancelDecision, snapshot];
+  const addUnitDecision = clone(cancelDecision);
+  (addUnitDecision.document as Record<string, unknown>).action = "add_unit";
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: [gap, addUnitDecision, snapshot],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.pre_candidate_stop_barrier",
+  );
+  const continueDecision = clone(cancelDecision);
+  (continueDecision.document as Record<string, unknown>).action = "continue_existing_plan";
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: [gap, continueDecision, snapshot],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.pre_candidate_stop_barrier",
+  );
+  const unrelatedGap = clone(gap);
+  const unrelatedGapDocument = unrelatedGap.document as Record<string, unknown>;
+  const unrelatedGapList = unrelatedGapDocument.gaps as Record<string, unknown>[];
+  assert.ok(unrelatedGapList.length > 0);
+  const unrelatedGapEntry = unrelatedGapList[0];
+  assert.ok(unrelatedGapEntry);
+  unrelatedGapEntry.gap_type = "method_boundary";
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: [unrelatedGap, cancelDecision, snapshot],
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.pre_candidate_stop_barrier",
+  );
   for (const envelope of [gap, cancelDecision, snapshot]) {
     const validation = state.validator.validateDocument(envelope, envelope.artifact_path);
     assert.equal(
@@ -1711,8 +1776,13 @@ test("stop_current_run blocks new research while exact cancel closeout and repla
   }
   await state.store.publishArtifactBundle({
     runId: state.runId,
-    envelopes: [gap, cancelDecision, snapshot],
+    envelopes: exactCloseoutBundle,
   });
+  const exactReplay = await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: exactCloseoutBundle,
+  });
+  assert.equal(exactReplay.status, "idempotent_replay");
   const offline = await publishedBundleFromState(state);
   const offlineResult = state.validator.validateDocumentBundle(offline);
   assert.equal(offlineResult.valid, true, JSON.stringify(offlineResult.referenceErrors, null, 2));

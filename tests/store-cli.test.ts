@@ -260,6 +260,14 @@ test("Harness and Skill G0.3 entries create, record, checkpoint, and reopen a re
   assert.ok((await readFile(path.join(runsRoot, runId, "manifest.json"), "utf8")).length > 0);
 });
 
+test("confirm-pre-candidates help describes append-ordered authority and orthogonal follow-up interest", async () => {
+  const help = runScript("harness/src/cli.ts", ["confirm-pre-candidates", "--help"]);
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /follow-up-interest-pre-candidate-ref/u);
+  assert.match(help.stdout, /current Manifest authority/u);
+  assert.match(help.stdout, /metadata only/u);
+});
+
 test("G0.3 command entries reject incomplete arguments with structured failure", () => {
   for (const script of [
     ".agents/skills/startup-opportunity/scripts/create-run.ts",

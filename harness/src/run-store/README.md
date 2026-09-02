@@ -2,6 +2,8 @@
 
 The Run Store creates current Runs, confines all paths under `runs/<run_id>/`, atomically replaces `manifest.json`, appends Event and Decision records by stable operation identity, publishes immutable checkpoints, and reconciles current on-disk state during reopen.
 
+Pre-candidate confirmations are append-ordered Decisions: the latest same-fan-in exact record is the current Manifest authority, `confirmedAt` is metadata only, and follow-up-interest refs remain orthogonal to selected refs.
+
 The Manifest does not select a schema bundle or expose a stable unsupported-version protocol. After a code or contract update, use a new `run_id`; an old Run is not migrated, adapted, continued, or restored, and may fail ordinary current validation. Existing `runs/` data is never rewritten as part of a contract update.
 
 This is distinct from failure recovery inside one current Run. Reopen validates current Manifest/checkpoint/Plan lineage, exact Artifact/Evidence/Plan receipts, hashes, JSONL identity, and state-set exclusivity. It may complete a validated interrupted publication, truncate only an incomplete JSONL tail, reconcile orphan active units, and finish a current Plan operation from its exact receipt. Drift, divergent replay, stale CAS state, missing referenced bytes, or invalid terminal report sidecars fail closed.
