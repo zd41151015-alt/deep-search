@@ -1065,6 +1065,17 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
           "current_decision_subject_snapshot_ref",
           "startup_opportunity.decision_subject_snapshot.current",
         ),
+        ...optionalRef(
+          document,
+          "current_discovery_fan_in_ref",
+          "startup_opportunity.discovery_fan_in.v2",
+        ),
+        ...optionalRef(
+          document,
+          "current_pre_candidate_confirmation_ref",
+          "startup_opportunity.decision.v1",
+          "decision_id",
+        ),
         ...optionalRef(document, "latest_gap_snapshot_ref", [
           "startup_opportunity.gap_snapshot.discovery.plan.current",
           "startup_opportunity.gap_snapshot.assessment.current",
@@ -2544,6 +2555,7 @@ function referenceRequirements(effective: EffectiveDocument): readonly Reference
       ];
     case "startup_opportunity.discovery_fan_in.v2":
       return [
+        ...optionalRef(document, "parent_fan_in_ref", "startup_opportunity.discovery_fan_in.v2"),
         ...optionalRef(
           document,
           "scope_frame_ref",

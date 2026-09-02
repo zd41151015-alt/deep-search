@@ -1289,6 +1289,7 @@ export async function createDiscoveryCandidateFixture(
     fan_in_id: "fan_in_g2_2_contract",
     revision: 1,
     parent_fan_in_ref: null,
+    parent_content_hash: null,
     run_id: G22_RUN_ID,
     mode: "opportunity_discovery",
     phase: "discovery",

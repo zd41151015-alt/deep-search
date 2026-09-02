@@ -303,6 +303,7 @@ export async function createDiscoverySynthesisFixture(
     pre_candidate_source_fan_in_ref: G22_FAN_IN,
     pre_candidate_source_fan_in_hash: fanInEnvelope.content_hash,
     pre_candidate_next_action: "proceed_with_selected",
+    pre_candidate_confirmation_sequence: 1,
     pre_candidate_interest_dispositions: materializedPreCandidateRefs.map((ref) => ({
       pre_candidate_ref: ref,
       pre_candidate_content_hash: canonicalContentHash(fixtureEffective(bundle, ref)),
@@ -310,6 +311,7 @@ export async function createDiscoverySynthesisFixture(
         ref === G22_RETAINED_PRE_CANDIDATE
           ? "selected_for_continuation"
           : "not_selected_current_run",
+      followup_interest_disposition: "not_requested_for_additional_discovery",
     })),
     confirmation_basis: "caller_attested_user_confirmation",
     harness_identity_verification: "not_available",
@@ -1212,6 +1214,13 @@ export async function createDiscoverySynthesisFixture(
   });
   const manifest = fixtureEffective(bundle, "manifest.json");
   manifest.latest_gap_snapshot_ref = G23_READINESS_GAP;
+  manifest.current_discovery_fan_in_ref = G22_FAN_IN;
+  manifest.current_discovery_fan_in_hash = fanInEnvelope.content_hash;
+  manifest.current_pre_candidate_confirmation_ref = G23_PRE_CANDIDATE_INTEREST_DECISION_REF;
+  manifest.current_pre_candidate_confirmation_hash = canonicalContentHash(
+    preCandidateInterestDecision,
+  );
+  manifest.current_pre_candidate_confirmation_action = "proceed_with_selected";
   manifest.artifact_refs = [
     ...new Set([
       ...((manifest.artifact_refs as string[] | undefined) ?? []),

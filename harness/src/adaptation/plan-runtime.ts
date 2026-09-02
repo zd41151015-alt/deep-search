@@ -99,6 +99,108 @@ export function isTerminalAdaptationAction(action: string): boolean {
   return TERMINAL_ACTIONS.has(action);
 }
 
+function preCandidateConfirmationSequence(record: Record<string, unknown>): number {
+  const sequence = record.pre_candidate_confirmation_sequence;
+  return Number.isInteger(sequence) && Number(sequence) > 0 ? Number(sequence) : 0;
+}
+
+function preCandidateConfirmationRef(record: Record<string, unknown>): string | null {
+  return typeof record.decision_id === "string" ? `decisions.jsonl#${record.decision_id}` : null;
+}
+
+function currentPreCandidateConfirmationEntries(
+  manifest: Record<string, unknown>,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+): readonly { readonly ref: string; readonly sequence: number }[] {
+  const fanInRef = manifest.current_discovery_fan_in_ref;
+  const fanInHash = manifest.current_discovery_fan_in_hash;
+  if (typeof fanInRef !== "string" || typeof fanInHash !== "string") {
+    return [];
+  }
+  return [...exactRecords.entries()]
+    .filter(
+      ([ref, record]) =>
+        ref.startsWith("decisions.jsonl#") &&
+        record.schema_version === "startup_opportunity.decision.v1" &&
+        record.decision_type === "pre_candidate_interest_confirmed" &&
+        record.run_id === manifest.run_id &&
+        record.pre_candidate_source_fan_in_ref === fanInRef &&
+        record.pre_candidate_source_fan_in_hash === fanInHash &&
+        preCandidateConfirmationSequence(record) > 0,
+    )
+    .map(([ref, record]) => ({ ref, sequence: preCandidateConfirmationSequence(record) }))
+    .sort((left, right) => left.sequence - right.sequence || left.ref.localeCompare(right.ref));
+}
+
+function duplicatePreCandidateConfirmationSequences(
+  entries: readonly { readonly ref: string; readonly sequence: number }[],
+): readonly Record<string, unknown>[] {
+  const groups = new Map<number, string[]>();
+  for (const entry of entries) {
+    groups.set(entry.sequence, [...(groups.get(entry.sequence) ?? []), entry.ref]);
+  }
+  return [...groups.entries()]
+    .filter(([, refs]) => refs.length > 1)
+    .map(([sequence, refs]) => ({ sequence, refs: refs.sort() }));
+}
+
+function isCurrentPreCandidateStopAuthority(
+  userDecision: Record<string, unknown>,
+  manifest: RunManifest,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+): boolean {
+  const entries = currentPreCandidateConfirmationEntries(manifest, exactRecords);
+  const latest = entries.at(-1);
+  return (
+    userDecision.schema_version === "startup_opportunity.decision.v1" &&
+    userDecision.decision_type === "pre_candidate_interest_confirmed" &&
+    userDecision.run_id === manifest.run_id &&
+    userDecision.actor === "main_agent" &&
+    userDecision.pre_candidate_next_action === "stop_current_run" &&
+    userDecision.confirmation_basis === "caller_attested_user_confirmation" &&
+    userDecision.harness_identity_verification === "not_available" &&
+    preCandidateConfirmationSequence(userDecision) > 0 &&
+    manifest.current_pre_candidate_confirmation_ref ===
+      `decisions.jsonl#${String(userDecision.decision_id)}` &&
+    canonicalContentHash(userDecision) === manifest.current_pre_candidate_confirmation_hash &&
+    manifest.current_pre_candidate_confirmation_action === "stop_current_run" &&
+    userDecision.pre_candidate_source_fan_in_ref === manifest.current_discovery_fan_in_ref &&
+    userDecision.pre_candidate_source_fan_in_hash === manifest.current_discovery_fan_in_hash &&
+    duplicatePreCandidateConfirmationSequences(entries).length === 0 &&
+    latest?.ref === preCandidateConfirmationRef(userDecision)
+  );
+}
+
+async function addCurrentPreCandidateConfirmationRecords(
+  runRoot: string,
+  runId: string,
+  manifest: Record<string, unknown>,
+  logs: JsonlStore,
+  exactRecords: Map<string, Record<string, unknown>>,
+): Promise<void> {
+  const fanInRef = manifest.current_discovery_fan_in_ref;
+  const fanInHash = manifest.current_discovery_fan_in_hash;
+  if (typeof fanInRef !== "string" || typeof fanInHash !== "string") {
+    return;
+  }
+  const decisions = await logs.listValidatedRecords(runRoot, runId, "decisions.jsonl");
+  for (const record of decisions) {
+    if (
+      record.schema_version !== "startup_opportunity.decision.v1" ||
+      record.decision_type !== "pre_candidate_interest_confirmed" ||
+      record.run_id !== runId ||
+      record.pre_candidate_source_fan_in_ref !== fanInRef ||
+      record.pre_candidate_source_fan_in_hash !== fanInHash
+    ) {
+      continue;
+    }
+    const ref = preCandidateConfirmationRef(record);
+    if (ref !== null) {
+      exactRecords.set(ref, await logs.readExactRecord(runRoot, runId, ref, "decisions.jsonl"));
+    }
+  }
+}
+
 function projectPlanningPhase(
   bundle: DocumentBundle,
   contextPath: string,
@@ -1407,6 +1509,7 @@ async function validateReceiptSources(
   try {
     const terminalActions: string[] = [];
     const sourceDocuments = new Map<string, EffectiveDocument>();
+    const exactRecords = new Map<string, Record<string, unknown>>();
     const decisions: AdaptationInputDocument[] = [];
     const addSourceDocument = (documentPath: string, document: Record<string, unknown>) => {
       sourceDocuments.set(documentPath, {
@@ -1417,6 +1520,13 @@ async function validateReceiptSources(
       });
     };
     addSourceDocument("manifest.json", receipt.base_manifest as unknown as Record<string, unknown>);
+    await addCurrentPreCandidateConfirmationRecords(
+      runRoot,
+      receipt.run_id,
+      receipt.base_manifest,
+      logs,
+      exactRecords,
+    );
     const basePlan = await storedEffectiveDocument(runRoot, receipt.base_plan_ref);
     addSourceDocument(receipt.base_plan_ref, basePlan);
     if (canonicalContentHash(basePlan) !== receipt.base_plan_hash) {
@@ -1472,17 +1582,16 @@ async function validateReceiptSources(
           decision.user_decision_ref,
           "decisions.jsonl",
         );
+        exactRecords.set(decision.user_decision_ref, userDecision);
         const legacyCancellationAuthority =
           userDecision.schema_version === "startup_opportunity.decision.v1" &&
           userDecision.decision_type === "run_cancelled" &&
           userDecision.actor === "user";
-        const preCandidateStopAuthority =
-          userDecision.schema_version === "startup_opportunity.decision.v1" &&
-          userDecision.decision_type === "pre_candidate_interest_confirmed" &&
-          userDecision.actor === "main_agent" &&
-          userDecision.pre_candidate_next_action === "stop_current_run" &&
-          userDecision.confirmation_basis === "caller_attested_user_confirmation" &&
-          userDecision.harness_identity_verification === "not_available";
+        const preCandidateStopAuthority = isCurrentPreCandidateStopAuthority(
+          userDecision,
+          receipt.base_manifest,
+          exactRecords,
+        );
         if (
           decision.action === "cancel_research" &&
           (userDecision.run_id !== receipt.run_id ||
@@ -1976,6 +2085,13 @@ async function assertAdaptationBundleMatchesStoredArtifacts(
         );
       }
     }
+    await addCurrentPreCandidateConfirmationRecords(
+      runRoot,
+      runId,
+      suppliedManifest.document,
+      logs,
+      exactJsonlRecords,
+    );
   }
   for (const supplied of documents) {
     if (

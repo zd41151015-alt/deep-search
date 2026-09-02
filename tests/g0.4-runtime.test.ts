@@ -322,6 +322,11 @@ function manifest(runId: string, plan: Record<string, unknown>): Record<string, 
     plan_revision: plan.revision,
     current_decision_subject_snapshot_ref: null,
     current_decision_subject_snapshot_hash: null,
+    current_discovery_fan_in_ref: null,
+    current_discovery_fan_in_hash: null,
+    current_pre_candidate_confirmation_ref: null,
+    current_pre_candidate_confirmation_hash: null,
+    current_pre_candidate_confirmation_action: null,
     followup_round: 0,
     latest_gap_snapshot_ref: GAP_REF,
     pending_adaptation_refs: [DECISION_REF],
@@ -5698,6 +5703,11 @@ test("ordinary post-G2 add_unit receipts bind every durable base-Plan candidate"
 
   const reopened = await setup.store.load(runId);
   assert.equal(reopened.manifest.current_plan_ref, "plans/research-plan.r2.json");
+  assert.equal(reopened.manifest.current_discovery_fan_in_ref, null);
+  assert.equal(reopened.manifest.current_discovery_fan_in_hash, null);
+  assert.equal(reopened.manifest.current_pre_candidate_confirmation_ref, null);
+  assert.equal(reopened.manifest.current_pre_candidate_confirmation_hash, null);
+  assert.equal(reopened.manifest.current_pre_candidate_confirmation_action, null);
   assert.deepEqual(reopened.planOperationRecovery.historicalDiscoveryPlanBindings, [
     {
       planRef: PLAN_REF,

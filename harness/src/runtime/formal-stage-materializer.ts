@@ -154,8 +154,12 @@ function requestUsesRetainedCandidateScope(request: FormalStageMaterializationRe
 
 function automaticAuthorityRefs(
   request: FormalStageMaterializationRequest,
-  manifestRefs: readonly string[],
+  manifest: {
+    readonly artifact_refs: readonly string[];
+    readonly current_discovery_fan_in_ref?: unknown;
+  },
 ): readonly string[] {
+  const manifestRefs = manifest.artifact_refs;
   const fanInRefs =
     request.fan_in === undefined
       ? []
@@ -173,11 +177,9 @@ function automaticAuthorityRefs(
     .filter((ref) => /\.r[1-9][0-9]*\.json$/u.test(ref))
     .map((ref) => ref.replace(/\.r[1-9][0-9]*\.json$/u, ".r"));
   const retainedFanInRefs = requestUsesRetainedCandidateScope(request)
-    ? manifestRefs.filter(
-        (ref) =>
-          ref === "artifacts/discovery/fan-in.r1.json" ||
-          ref.startsWith("artifacts/discovery/fan-in/"),
-      )
+    ? typeof manifest.current_discovery_fan_in_ref === "string"
+      ? [manifest.current_discovery_fan_in_ref]
+      : []
     : [];
   return unique([
     ...(request.top_level_formal_refs ?? []),
@@ -191,12 +193,14 @@ function automaticAuthorityRefs(
 function retainedCandidateScopeAuthority(
   byPath: ReadonlyMap<string, Record<string, unknown>>,
   planRef: string,
+  currentFanInRef: unknown,
 ): Readonly<{ candidateRefs: readonly string[]; authorityRefs: readonly string[] }> {
-  const fanIns = [...byPath.entries()].filter(
-    ([, document]) =>
-      document.schema_version === "startup_opportunity.discovery_fan_in.v2" &&
-      document.research_plan_ref === planRef,
-  );
+  const fanIn = typeof currentFanInRef === "string" ? byPath.get(currentFanInRef) : undefined;
+  const fanIns =
+    fanIn?.schema_version === "startup_opportunity.discovery_fan_in.v2" &&
+    fanIn.research_plan_ref === planRef
+      ? [[currentFanInRef as string, fanIn] as const]
+      : [];
   return {
     candidateRefs: unique(
       fanIns.flatMap(([, document]) => strings(document.retained_candidate_refs)),
@@ -242,7 +246,7 @@ export class FormalStageMaterializer {
       ...status.manifest.artifact_refs.filter((ref) =>
         ref.startsWith("plans/research-execution.r"),
       ),
-      ...automaticAuthorityRefs(request, status.manifest.artifact_refs),
+      ...automaticAuthorityRefs(request, status.manifest),
     ]);
     const context = await this.runs.buildValidationContext(
       request.run_id,
@@ -276,7 +280,14 @@ export class FormalStageMaterializer {
       suppliedPlan?.publication.every((entry) => trackedPaths.has(entry.artifact_path));
     let compilation: RuntimeArtifactCompilationResult;
     if (replay && suppliedPlan !== undefined) {
-      await this.assertReplayRequestBindings(request, suppliedPlan, planRef, plan, byPath);
+      await this.assertReplayRequestBindings(
+        request,
+        suppliedPlan,
+        planRef,
+        plan,
+        byPath,
+        status.manifest.current_discovery_fan_in_ref,
+      );
       compilation = await this.compiler.compile({
         schema_version: "startup_opportunity.runtime_artifact_compilation_request.v1",
         request_id: request.request_id,
@@ -287,7 +298,13 @@ export class FormalStageMaterializer {
         publication_plan: suppliedPlan,
       });
     } else {
-      const artifacts = this.projectArtifacts(request, planRef, plan, byPath);
+      const artifacts = this.projectArtifacts(
+        request,
+        planRef,
+        plan,
+        byPath,
+        status.manifest.current_discovery_fan_in_ref,
+      );
       const compiledArtifacts = artifacts;
       if (request.operation === "validate_only") {
         compilation = await this.compiler.compile({
@@ -364,6 +381,7 @@ export class FormalStageMaterializer {
     planRef: string,
     currentPlan: Record<string, unknown>,
     byPath: ReadonlyMap<string, Record<string, unknown>>,
+    currentFanInRef: unknown,
   ): Promise<void> {
     if (
       plan.request_id !== request.request_id ||
@@ -375,7 +393,14 @@ export class FormalStageMaterializer {
         "publication plan identity must match the exact formal-stage request",
       );
     }
-    return this.assertReplayRequestBindingsAsync(request, plan, planRef, currentPlan, byPath);
+    return this.assertReplayRequestBindingsAsync(
+      request,
+      plan,
+      planRef,
+      currentPlan,
+      byPath,
+      currentFanInRef,
+    );
   }
 
   private async assertReplayRequestBindingsAsync(
@@ -384,6 +409,7 @@ export class FormalStageMaterializer {
     planRef: string,
     currentPlan: Record<string, unknown>,
     byPath: ReadonlyMap<string, Record<string, unknown>>,
+    currentFanInRef: unknown,
   ): Promise<void> {
     const replayProjectionContext = new Map(byPath);
     for (const envelope of plan.compiled_envelopes) {
@@ -396,6 +422,7 @@ export class FormalStageMaterializer {
         planRef,
         currentPlan,
         replayProjectionContext,
+        currentFanInRef,
       );
     } catch (error) {
       if (error instanceof StoreError) {
@@ -453,9 +480,10 @@ export class FormalStageMaterializer {
     planRef: string,
     plan: Record<string, unknown>,
     byPath: ReadonlyMap<string, Record<string, unknown>>,
+    currentFanInRef: unknown,
   ): readonly CompilerReadyArtifact[] {
     return request.stage_kind === "discovery_wave"
-      ? this.projectWave(request, planRef, plan, byPath)
+      ? this.projectWave(request, planRef, plan, byPath, currentFanInRef)
       : this.projectObjects(request, planRef, plan, byPath);
   }
 
@@ -464,6 +492,7 @@ export class FormalStageMaterializer {
     planRef: string,
     plan: Record<string, unknown>,
     byPath: ReadonlyMap<string, Record<string, unknown>>,
+    currentFanInRef: unknown,
   ): readonly CompilerReadyArtifact[] {
     const wave = request.wave;
     if (wave === undefined)
@@ -500,7 +529,11 @@ export class FormalStageMaterializer {
       );
     }
     const planUnits = new Map(units.map((unit) => [String(unit.unit_id), unit]));
-    const retainedScopeAuthority = retainedCandidateScopeAuthority(byPath, planRef);
+    const retainedScopeAuthority = retainedCandidateScopeAuthority(
+      byPath,
+      planRef,
+      currentFanInRef,
+    );
     const scopeEntries = [...byPath.entries()].filter(([, document]) =>
       String(document.schema_version).startsWith("startup_opportunity.scope_frame."),
     );

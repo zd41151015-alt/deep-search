@@ -2112,7 +2112,7 @@ function validateEvaluationAndReporting(
           (fanIn.document.parent_fan_in_ref !== null ||
             fanIn.document.parent_content_hash !== null)) ||
         (revision > 1 &&
-          (parent?.schemaVersion !== "startup_opportunity.enrichment_fan_in.v1" ||
+          (parent?.schemaVersion !== "startup_opportunity.discovery_fan_in.v2" ||
             parent.document.revision !== revision - 1 ||
             fanIn.document.parent_content_hash !== canonicalContentHash(parent.document)))
       ) {

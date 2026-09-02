@@ -113,6 +113,11 @@ export interface RunManifest extends Record<string, unknown> {
   readonly plan_revision: number;
   readonly current_decision_subject_snapshot_ref: string | null;
   readonly current_decision_subject_snapshot_hash: string | null;
+  readonly current_discovery_fan_in_ref: string | null;
+  readonly current_discovery_fan_in_hash: string | null;
+  readonly current_pre_candidate_confirmation_ref: string | null;
+  readonly current_pre_candidate_confirmation_hash: string | null;
+  readonly current_pre_candidate_confirmation_action: PreCandidateInterestNextAction | null;
   readonly followup_round: number;
   readonly latest_gap_snapshot_ref: string | null;
   readonly pending_adaptation_refs: readonly string[];
@@ -239,6 +244,7 @@ export interface ConfirmPreCandidatesInput {
   readonly expectedFanInRef: string;
   readonly expectedFanInHash: string;
   readonly selectedPreCandidateRefs: readonly string[];
+  readonly followUpInterestPreCandidateRefs?: readonly string[];
   readonly nextAction: PreCandidateInterestNextAction;
   readonly userConfirmationAttestation: string;
   readonly confirmedAt?: string;
@@ -250,6 +256,7 @@ export interface ConfirmPreCandidatesResult {
   readonly sourceFanInRef: string;
   readonly sourceFanInHash: string;
   readonly selectedPreCandidateRefs: readonly string[];
+  readonly followUpInterestPreCandidateRefs: readonly string[];
   readonly nextAction: PreCandidateInterestNextAction;
   readonly decisionRef: string;
   readonly decisionHash: string;
@@ -721,17 +728,55 @@ function sameStringSet(left: readonly string[], right: readonly string[]): boole
   return canonicalJson([...new Set(left)].sort()) === canonicalJson([...new Set(right)].sort());
 }
 
-function latestDecisionByTimestamp(
+function preCandidateConfirmationSequence(record: Record<string, unknown>): number {
+  const sequence = record.pre_candidate_confirmation_sequence;
+  return Number.isInteger(sequence) && Number(sequence) > 0 ? Number(sequence) : 0;
+}
+
+function latestPreCandidateConfirmationBySequence(
   records: readonly Record<string, unknown>[],
 ): Record<string, unknown> | null {
-  return (
-    [...records].sort((left, right) => {
-      const timeDifference =
-        Date.parse(String(right.timestamp ?? "")) - Date.parse(String(left.timestamp ?? ""));
-      if (Number.isFinite(timeDifference) && timeDifference !== 0) return timeDifference;
-      return String(right.decision_id ?? "").localeCompare(String(left.decision_id ?? ""));
-    })[0] ?? null
+  let latest: Record<string, unknown> | null = null;
+  for (const record of records) {
+    if (
+      preCandidateConfirmationSequence(record) >= preCandidateConfirmationSequence(latest ?? {})
+    ) {
+      latest = record;
+    }
+  }
+  return latest;
+}
+
+function preCandidateConfirmationRef(record: Record<string, unknown>): string {
+  return `decisions.jsonl#${String(record.decision_id)}`;
+}
+
+function duplicatePreCandidateConfirmationSequences(
+  records: readonly Record<string, unknown>[],
+): readonly Record<string, unknown>[] {
+  const groups = new Map<number, string[]>();
+  for (const record of records) {
+    const sequence = preCandidateConfirmationSequence(record);
+    if (sequence < 1) continue;
+    groups.set(sequence, [...(groups.get(sequence) ?? []), preCandidateConfirmationRef(record)]);
+  }
+  return [...groups.entries()]
+    .filter(([, refs]) => refs.length > 1)
+    .map(([sequence, refs]) => ({ sequence, refs: refs.sort() }));
+}
+
+function discoveryFanInRevisionFromRef(ref: string | null): number {
+  if (ref === null) return 0;
+  const revision = Number(
+    ref.match(/^artifacts\/discovery\/fan-in\.r([1-9][0-9]*)\.json$/u)?.[1] ?? Number.NaN,
   );
+  return Number.isInteger(revision) && revision > 0 ? revision : 0;
+}
+
+function monotonicStoreTimestampAfter(timestamp: string): string {
+  const previous = Date.parse(timestamp);
+  if (!Number.isFinite(previous)) return new Date().toISOString();
+  return new Date(previous + 1).toISOString();
 }
 
 function researchPlanUnits(
@@ -1239,6 +1284,11 @@ function makeManifest(input: CreateRunInput, createdAt: string): RunManifest {
     plan_revision: 0,
     current_decision_subject_snapshot_ref: null,
     current_decision_subject_snapshot_hash: null,
+    current_discovery_fan_in_ref: null,
+    current_discovery_fan_in_hash: null,
+    current_pre_candidate_confirmation_ref: null,
+    current_pre_candidate_confirmation_hash: null,
+    current_pre_candidate_confirmation_action: null,
     followup_round: 0,
     latest_gap_snapshot_ref: null,
     pending_adaptation_refs: [],
@@ -1728,6 +1778,31 @@ export class RunStore {
         { scopeRevision: manifest.scope_revision },
       );
     }
+    if (
+      manifest.status === "stopping" ||
+      manifest.current_pre_candidate_confirmation_action === "stop_current_run"
+    ) {
+      const authority = await this.currentPreCandidateConfirmationAuthorityLocked(
+        runRoot,
+        manifest,
+      );
+      if (authority?.action !== "stop_current_run") {
+        throw new StoreError(
+          "run.pre_candidate_stop_barrier_invalid",
+          "stopping Runs require an exact current pre-candidate stop confirmation authority",
+          { status: manifest.status, currentConfirmationRef: authority?.ref ?? null },
+        );
+      }
+      throw new StoreError(
+        "run.pre_candidate_stop_barrier",
+        "pre-candidate stop confirmation blocks new research execution until exact cancel_research terminal closeout",
+        {
+          status: manifest.status,
+          currentConfirmationRef: authority.ref,
+          currentFanInRef: manifest.current_discovery_fan_in_ref,
+        },
+      );
+    }
     await this.assertCurrentLeafWritable(runId);
   }
 
@@ -1970,11 +2045,23 @@ export class RunStore {
       );
     }
     const selectedPreCandidateRefs = [...input.selectedPreCandidateRefs].sort();
+    const followUpInterestPreCandidateRefs = [
+      ...(input.followUpInterestPreCandidateRefs ?? []),
+    ].sort();
     if (new Set(selectedPreCandidateRefs).size !== selectedPreCandidateRefs.length) {
       throw new StoreError(
         "pre_candidate_interest.selection_duplicate",
         "selected pre-candidate refs must be unique",
         { selectedPreCandidateRefs },
+      );
+    }
+    if (
+      new Set(followUpInterestPreCandidateRefs).size !== followUpInterestPreCandidateRefs.length
+    ) {
+      throw new StoreError(
+        "pre_candidate_interest.followup_interest_duplicate",
+        "follow-up interest pre-candidate refs must be unique",
+        { followUpInterestPreCandidateRefs },
       );
     }
     const parsedFanIn = validateArtifactRef(input.expectedFanInRef);
@@ -2021,7 +2108,8 @@ export class RunStore {
         fanIn === undefined ||
         fanIn.artifact_type !== "startup_opportunity.discovery_fan_in.v2" ||
         fanIn.document.run_id !== input.runId ||
-        fanIn.document.research_plan_ref !== manifest.current_plan_ref
+        fanIn.document.research_plan_ref !== manifest.current_plan_ref ||
+        manifest.current_discovery_fan_in_ref !== input.expectedFanInRef
       ) {
         throw new StoreError(
           "pre_candidate_interest.fan_in_not_current",
@@ -2029,6 +2117,7 @@ export class RunStore {
           {
             expectedFanInRef: input.expectedFanInRef,
             currentPlanRef: manifest.current_plan_ref,
+            currentFanInRef: manifest.current_discovery_fan_in_ref,
           },
         );
       }
@@ -2043,8 +2132,8 @@ export class RunStore {
           },
         );
       }
-      for (const selected of selectedPreCandidateRefs) {
-        validateArtifactRef(selected);
+      for (const ref of [...selectedPreCandidateRefs, ...followUpInterestPreCandidateRefs]) {
+        validateArtifactRef(ref);
       }
       const materializedPreCandidateRefs = strings(fanIn.document.materialized_pre_candidate_refs);
       const selectedOutsideFanIn = selectedPreCandidateRefs.filter(
@@ -2055,6 +2144,16 @@ export class RunStore {
           "pre_candidate_interest.selection_not_in_fan_in",
           "selected pre-candidate refs must belong to the exact source fan-in",
           { selectedOutsideFanIn, materializedPreCandidateRefs },
+        );
+      }
+      const followupOutsideFanIn = followUpInterestPreCandidateRefs.filter(
+        (ref) => !materializedPreCandidateRefs.includes(ref),
+      );
+      if (followupOutsideFanIn.length > 0) {
+        throw new StoreError(
+          "pre_candidate_interest.followup_interest_not_in_fan_in",
+          "follow-up interest pre-candidate refs must belong to the exact source fan-in",
+          { followupOutsideFanIn, materializedPreCandidateRefs },
         );
       }
       for (const ref of materializedPreCandidateRefs) {
@@ -2071,6 +2170,9 @@ export class RunStore {
           interest_disposition: selectedPreCandidateRefs.includes(ref)
             ? "selected_for_continuation"
             : "not_selected_current_run",
+          followup_interest_disposition: followUpInterestPreCandidateRefs.includes(ref)
+            ? "interested_for_additional_discovery"
+            : "not_requested_for_additional_discovery",
         };
       });
       const decisionIdentity = {
@@ -2080,14 +2182,23 @@ export class RunStore {
         pre_candidate_next_action: input.nextAction,
         pre_candidate_interest_dispositions: dispositions,
       };
-      const decisionId = `pre_candidate_interest_${sha256Hex(
-        operationKey("pre_candidate_interest_decision", decisionIdentity),
-      ).slice(0, 24)}`;
-      const decisionRef = `decisions.jsonl#${decisionId}`;
-      const existing = (
-        await this.logs.listValidatedRecords(runRoot, input.runId, "decisions.jsonl")
-      ).find((record) => record.decision_id === decisionId);
-      if (existing !== undefined) {
+      const existingRecords = (
+        await this.preCandidateInterestDecisionRecordsLocked(runRoot, input.runId)
+      ).filter((record) => record.run_id === input.runId);
+      const latestExisting = latestPreCandidateConfirmationBySequence(existingRecords);
+      if (
+        latestExisting !== null &&
+        canonicalJson({
+          run_id: latestExisting.run_id,
+          pre_candidate_source_fan_in_ref: latestExisting.pre_candidate_source_fan_in_ref,
+          pre_candidate_source_fan_in_hash: latestExisting.pre_candidate_source_fan_in_hash,
+          pre_candidate_next_action: latestExisting.pre_candidate_next_action,
+          pre_candidate_interest_dispositions: latestExisting.pre_candidate_interest_dispositions,
+        }) === canonicalJson(decisionIdentity) &&
+        latestExisting.reason === input.userConfirmationAttestation &&
+        (input.confirmedAt === undefined || latestExisting.timestamp === input.confirmedAt)
+      ) {
+        const decisionRef = `decisions.jsonl#${String(latestExisting.decision_id)}`;
         const exactExisting = await this.logs.readExactRecord(
           runRoot,
           input.runId,
@@ -2120,20 +2231,54 @@ export class RunStore {
             { decisionRef },
           );
         }
+        const existingHash = canonicalContentHash(exactExisting);
+        const nextManifest: RunManifest = {
+          ...manifest,
+          status:
+            input.nextAction === "stop_current_run"
+              ? "stopping"
+              : manifest.status === "stopping"
+                ? "researching"
+                : manifest.status,
+          current_pre_candidate_confirmation_ref: decisionRef,
+          current_pre_candidate_confirmation_hash: existingHash,
+          current_pre_candidate_confirmation_action: input.nextAction,
+          updated_at:
+            manifest.current_pre_candidate_confirmation_ref === decisionRef &&
+            manifest.current_pre_candidate_confirmation_hash === existingHash &&
+            manifest.current_pre_candidate_confirmation_action === input.nextAction
+              ? manifest.updated_at
+              : monotonicStoreTimestampAfter(manifest.updated_at),
+        };
+        if (canonicalJson(nextManifest) !== canonicalJson(manifest)) {
+          await this.writeManifest(runRoot, nextManifest);
+        }
         return {
           schemaVersion: "startup_opportunity.confirm_pre_candidates_result.v1",
           runId: input.runId,
           sourceFanInRef: input.expectedFanInRef,
           sourceFanInHash: input.expectedFanInHash,
           selectedPreCandidateRefs,
+          followUpInterestPreCandidateRefs,
           nextAction: input.nextAction,
           decisionRef,
-          decisionHash: canonicalContentHash(exactExisting),
+          decisionHash: existingHash,
           confirmationBasis: "caller_attested_user_confirmation",
           harnessIdentityVerification: "not_available",
           status: "idempotent_replay",
         };
       }
+      const nextSequence =
+        Math.max(0, ...existingRecords.map((record) => preCandidateConfirmationSequence(record))) +
+        1;
+      const decisionId = `pre_candidate_interest_${String(nextSequence).padStart(
+        6,
+        "0",
+      )}_${sha256Hex(operationKey("pre_candidate_interest_decision", decisionIdentity)).slice(
+        0,
+        16,
+      )}`;
+      const decisionRef = `decisions.jsonl#${decisionId}`;
       const decision = {
         schema_version: "startup_opportunity.decision.v1",
         decision_id: decisionId,
@@ -2148,6 +2293,7 @@ export class RunStore {
         pre_candidate_source_fan_in_ref: input.expectedFanInRef,
         pre_candidate_source_fan_in_hash: input.expectedFanInHash,
         pre_candidate_next_action: input.nextAction,
+        pre_candidate_confirmation_sequence: nextSequence,
         pre_candidate_interest_dispositions: dispositions,
         confirmation_basis: "caller_attested_user_confirmation",
         harness_identity_verification: "not_available",
@@ -2174,7 +2320,16 @@ export class RunStore {
       );
       const nextManifest: RunManifest = {
         ...manifest,
-        updated_at: String(decision.timestamp),
+        status:
+          input.nextAction === "stop_current_run"
+            ? "stopping"
+            : manifest.status === "stopping"
+              ? "researching"
+              : manifest.status,
+        current_pre_candidate_confirmation_ref: decisionRef,
+        current_pre_candidate_confirmation_hash: canonicalContentHash(decision),
+        current_pre_candidate_confirmation_action: input.nextAction,
+        updated_at: monotonicStoreTimestampAfter(manifest.updated_at),
       };
       await this.writeManifest(runRoot, nextManifest);
       return {
@@ -2183,6 +2338,7 @@ export class RunStore {
         sourceFanInRef: input.expectedFanInRef,
         sourceFanInHash: input.expectedFanInHash,
         selectedPreCandidateRefs,
+        followUpInterestPreCandidateRefs,
         nextAction: input.nextAction,
         decisionRef,
         decisionHash: canonicalContentHash(decision),
@@ -6038,6 +6194,7 @@ export class RunStore {
     envelopes: readonly FormalArtifactEnvelope[],
   ): Promise<void> {
     await this.assertScopeBindingLocked(runRoot, manifest);
+    await this.assertPreCandidateStopBarrierAllowsLocked(runRoot, manifest, envelopes);
     await this.assertLaneLifecycleLaunchIdentitiesLocked(runRoot, manifest, envelopes);
     if (manifest.status === "awaiting_scope_confirmation") {
       throw new StoreError(
@@ -6578,6 +6735,21 @@ export class RunStore {
       "startup_opportunity.discovery_fan_in.v2",
       "run.discovery_synthesis_readiness_binding_invalid",
     );
+    if (
+      manifest.current_discovery_fan_in_ref !== fanInRef ||
+      manifest.current_discovery_fan_in_hash !== fanIn.content_hash
+    ) {
+      throw new StoreError(
+        "run.discovery_synthesis_fan_in_not_current",
+        "G2.3 must bind the Manifest current discovery fan-in exact ref/hash",
+        {
+          fanInRef,
+          fanInHash: fanIn.content_hash,
+          currentFanInRef: manifest.current_discovery_fan_in_ref,
+          currentFanInHash: manifest.current_discovery_fan_in_hash,
+        },
+      );
+    }
     const executionRef = readiness.document.execution_plan_ref;
     if (typeof executionRef !== "string") {
       throw new StoreError(
@@ -6691,22 +6863,11 @@ export class RunStore {
         },
       );
     }
-    const interestDecisionCandidates = (
-      await this.logs.listValidatedRecords(runRoot, manifest.run_id, "decisions.jsonl")
-    ).filter(
-      (decision) =>
-        decision.decision_type === "pre_candidate_interest_confirmed" &&
-        decision.pre_candidate_source_fan_in_ref === fanInRef,
+    const interestAuthority = await this.currentPreCandidateConfirmationAuthorityLocked(
+      runRoot,
+      manifest,
     );
-    const exactInterestDecisions: Record<string, unknown>[] = [];
-    for (const decision of interestDecisionCandidates) {
-      const decisionRef = `decisions.jsonl#${String(decision.decision_id)}`;
-      exactInterestDecisions.push(
-        await this.logs.readExactRecord(runRoot, manifest.run_id, decisionRef, "decisions.jsonl"),
-      );
-    }
-    const interestDecision = latestDecisionByTimestamp(exactInterestDecisions);
-    if (interestDecision === null) {
+    if (interestAuthority === null) {
       throw new StoreError(
         "run.discovery_synthesis_pre_candidate_confirmation_required",
         "G2.3 requires caller-attested user confirmation of the retained pre-candidates before formalization",
@@ -6717,24 +6878,23 @@ export class RunStore {
       manifest,
       fanIn,
       currentEnvelopeByPath,
-      interestDecision,
+      interestAuthority.record,
     );
-    if (
-      interestIssues.length > 0 ||
-      interestDecision.pre_candidate_next_action !== "proceed_with_selected"
-    ) {
+    if (interestIssues.length > 0 || interestAuthority.action !== "proceed_with_selected") {
       throw new StoreError(
         "run.discovery_synthesis_pre_candidate_confirmation_invalid",
         "G2.3 requires the latest pre-candidate user decision for this fan-in to proceed with selected retained pre-candidates",
         {
           fanInRef,
-          decisionRef: `decisions.jsonl#${String(interestDecision.decision_id)}`,
-          nextAction: interestDecision.pre_candidate_next_action ?? null,
+          decisionRef: interestAuthority.ref,
+          nextAction: interestAuthority.action,
           issues: interestIssues,
         },
       );
     }
-    const selectedByUser = this.selectedPreCandidateRefsFromInterestDecision(interestDecision);
+    const selectedByUser = this.selectedPreCandidateRefsFromInterestDecision(
+      interestAuthority.record,
+    );
     if (!sourcePreCandidateRefs.every((ref) => selectedByUser.includes(ref))) {
       throw new StoreError(
         "run.discovery_synthesis_pre_candidate_not_user_selected",
@@ -6769,6 +6929,275 @@ export class RunStore {
     return current;
   }
 
+  private async preCandidateInterestDecisionRecordsLocked(
+    runRoot: string,
+    runId: string,
+  ): Promise<readonly Record<string, unknown>[]> {
+    const records = await this.logs.listValidatedRecords(runRoot, runId, "decisions.jsonl");
+    const exactRecords: Record<string, unknown>[] = [];
+    for (const record of records) {
+      if (record.decision_type !== "pre_candidate_interest_confirmed") continue;
+      const decisionRef = `decisions.jsonl#${String(record.decision_id)}`;
+      exactRecords.push(
+        await this.logs.readExactRecord(runRoot, runId, decisionRef, "decisions.jsonl"),
+      );
+    }
+    return exactRecords;
+  }
+
+  private async currentPreCandidateConfirmationAuthorityLocked(
+    runRoot: string,
+    manifest: RunManifest,
+  ): Promise<{
+    readonly ref: string;
+    readonly hash: string;
+    readonly action: PreCandidateInterestNextAction;
+    readonly record: Record<string, unknown>;
+  } | null> {
+    const ref = manifest.current_pre_candidate_confirmation_ref;
+    const hash = manifest.current_pre_candidate_confirmation_hash;
+    const action = manifest.current_pre_candidate_confirmation_action;
+    if (ref === null && hash === null && action === null) {
+      return null;
+    }
+    if (ref === null || hash === null || action === null) {
+      throw new StoreError(
+        "manifest.pre_candidate_confirmation_invalid",
+        "Manifest current pre-candidate confirmation fields must be absent or present as one exact authority set",
+        { ref, hash, action },
+      );
+    }
+    const record = await this.logs.readExactRecord(
+      runRoot,
+      manifest.run_id,
+      ref,
+      "decisions.jsonl",
+    );
+    const actualHash = canonicalContentHash(record);
+    if (
+      record.schema_version !== "startup_opportunity.decision.v1" ||
+      record.decision_type !== "pre_candidate_interest_confirmed" ||
+      record.run_id !== manifest.run_id ||
+      record.actor !== "main_agent" ||
+      preCandidateConfirmationSequence(record) < 1 ||
+      record.confirmation_basis !== "caller_attested_user_confirmation" ||
+      record.harness_identity_verification !== "not_available" ||
+      actualHash !== hash ||
+      record.pre_candidate_next_action !== action ||
+      record.pre_candidate_source_fan_in_ref !== manifest.current_discovery_fan_in_ref ||
+      record.pre_candidate_source_fan_in_hash !== manifest.current_discovery_fan_in_hash
+    ) {
+      throw new StoreError(
+        "manifest.pre_candidate_confirmation_invalid",
+        "Manifest current pre-candidate confirmation must bind the exact current fan-in decision ref/hash/action",
+        {
+          ref,
+          expectedHash: hash,
+          actualHash,
+          action,
+          recordAction: record.pre_candidate_next_action ?? null,
+          currentFanInRef: manifest.current_discovery_fan_in_ref,
+          recordFanInRef: record.pre_candidate_source_fan_in_ref ?? null,
+        },
+      );
+    }
+    const sameFanInConfirmations = (
+      await this.preCandidateInterestDecisionRecordsLocked(runRoot, manifest.run_id)
+    ).filter(
+      (candidate) =>
+        candidate.pre_candidate_source_fan_in_ref === manifest.current_discovery_fan_in_ref &&
+        candidate.pre_candidate_source_fan_in_hash === manifest.current_discovery_fan_in_hash,
+    );
+    const duplicateSequences = duplicatePreCandidateConfirmationSequences(sameFanInConfirmations);
+    const latest = latestPreCandidateConfirmationBySequence(sameFanInConfirmations);
+    const latestRef = latest === null ? null : preCandidateConfirmationRef(latest);
+    if (duplicateSequences.length > 0 || latestRef !== ref) {
+      throw new StoreError(
+        "manifest.pre_candidate_confirmation_stale",
+        "Manifest current pre-candidate confirmation must be the latest same-fan-in append sequence",
+        {
+          fanInRef: manifest.current_discovery_fan_in_ref,
+          currentPreCandidateConfirmationRef: ref,
+          latestPreCandidateConfirmationRef: latestRef,
+          duplicateSequences,
+        },
+      );
+    }
+    return { ref, hash, action, record };
+  }
+
+  private async bindCurrentPreCandidateConfirmationStateLocked(
+    runRoot: string,
+    manifest: RunManifest,
+  ): Promise<RunManifest> {
+    if (manifest.current_discovery_fan_in_ref === null) {
+      return {
+        ...manifest,
+        current_discovery_fan_in_hash: null,
+        current_pre_candidate_confirmation_ref: null,
+        current_pre_candidate_confirmation_hash: null,
+        current_pre_candidate_confirmation_action: null,
+        status: manifest.status === "stopping" ? "researching" : manifest.status,
+      };
+    }
+    const currentByPath = await this.currentFormalEnvelopeMapLocked(runRoot, manifest);
+    const fanIn = currentByPath.get(manifest.current_discovery_fan_in_ref);
+    if (
+      fanIn === undefined ||
+      fanIn.artifact_type !== "startup_opportunity.discovery_fan_in.v2" ||
+      fanIn.content_hash !== manifest.current_discovery_fan_in_hash ||
+      fanIn.document.run_id !== manifest.run_id ||
+      fanIn.document.research_plan_ref !== manifest.current_plan_ref
+    ) {
+      throw new StoreError(
+        "manifest.current_discovery_fan_in_invalid",
+        "Manifest current discovery fan-in must resolve to the exact current Plan fan-in envelope",
+        {
+          currentFanInRef: manifest.current_discovery_fan_in_ref,
+          currentFanInHash: manifest.current_discovery_fan_in_hash,
+          currentPlanRef: manifest.current_plan_ref,
+        },
+      );
+    }
+    const candidates = (
+      await this.preCandidateInterestDecisionRecordsLocked(runRoot, manifest.run_id)
+    ).filter(
+      (record) =>
+        record.pre_candidate_source_fan_in_ref === manifest.current_discovery_fan_in_ref &&
+        record.pre_candidate_source_fan_in_hash === manifest.current_discovery_fan_in_hash,
+    );
+    const duplicateSequences = duplicatePreCandidateConfirmationSequences(candidates);
+    if (duplicateSequences.length > 0) {
+      throw new StoreError(
+        "manifest.pre_candidate_confirmation_stale",
+        "current fan-in pre-candidate confirmations must have unique append sequences",
+        {
+          fanInRef: manifest.current_discovery_fan_in_ref,
+          duplicateSequences,
+        },
+      );
+    }
+    const latest = latestPreCandidateConfirmationBySequence(candidates);
+    if (latest === null) {
+      return {
+        ...manifest,
+        current_pre_candidate_confirmation_ref: null,
+        current_pre_candidate_confirmation_hash: null,
+        current_pre_candidate_confirmation_action: null,
+        status: manifest.status === "stopping" ? "researching" : manifest.status,
+      };
+    }
+    const issues = this.preCandidateInterestDecisionIssues(manifest, fanIn, currentByPath, latest);
+    if (issues.length > 0) {
+      throw new StoreError(
+        "manifest.pre_candidate_confirmation_invalid",
+        "latest pre-candidate confirmation for the current fan-in is not a valid current authority",
+        { decisionId: latest.decision_id ?? null, issues },
+      );
+    }
+    const action = latest.pre_candidate_next_action as PreCandidateInterestNextAction;
+    const hash = canonicalContentHash(latest);
+    const ref = preCandidateConfirmationRef(latest);
+    return {
+      ...manifest,
+      current_pre_candidate_confirmation_ref: ref,
+      current_pre_candidate_confirmation_hash: hash,
+      current_pre_candidate_confirmation_action: action,
+      status:
+        action === "stop_current_run"
+          ? manifest.status === "cancelled"
+            ? manifest.status
+            : "stopping"
+          : manifest.status === "stopping"
+            ? "researching"
+            : manifest.status,
+    };
+  }
+
+  private async assertPreCandidateStopBarrierAllowsLocked(
+    runRoot: string,
+    manifest: RunManifest,
+    envelopes: readonly FormalArtifactEnvelope[],
+  ): Promise<void> {
+    const barrierActive =
+      manifest.status === "stopping" ||
+      manifest.current_pre_candidate_confirmation_action === "stop_current_run";
+    if (!barrierActive) return;
+
+    const tracked = new Set([...manifest.artifact_refs, ...manifest.ignored_late_artifact_refs]);
+    if (envelopes.every((envelope) => tracked.has(envelope.artifact_path))) {
+      return;
+    }
+    const durableExact = await Promise.all(
+      envelopes.map(async (envelope) => {
+        try {
+          const stored = JSON.parse(
+            await readFile(await resolveRunPath(runRoot, envelope.artifact_path), "utf8"),
+          ) as unknown;
+          return canonicalJson(stored) === canonicalJson(envelope);
+        } catch {
+          return false;
+        }
+      }),
+    );
+    if (durableExact.every(Boolean)) {
+      return;
+    }
+
+    const authority = await this.currentPreCandidateConfirmationAuthorityLocked(runRoot, manifest);
+    if (authority?.action !== "stop_current_run") {
+      throw new StoreError(
+        "run.pre_candidate_stop_barrier_invalid",
+        "stopping Runs require an exact current pre-candidate stop confirmation authority",
+        { status: manifest.status, currentConfirmationRef: authority?.ref ?? null },
+      );
+    }
+
+    const allowedTypes = new Set([
+      "startup_opportunity.gap_snapshot.discovery.plan.current",
+      "startup_opportunity.gap_snapshot.discovery.readiness.current",
+      "startup_opportunity.adaptation_decision.discovery.current",
+      "startup_opportunity.decision_subject_snapshot.current",
+    ]);
+    const hasCancelResearch = envelopes.some(
+      (envelope) =>
+        envelope.artifact_type === "startup_opportunity.adaptation_decision.discovery.current" &&
+        envelope.document.action === "cancel_research" &&
+        envelope.document.requested_by === "user" &&
+        envelope.document.user_decision_ref === authority.ref,
+    );
+    const snapshotsAreEmptyTerminalInputs = envelopes
+      .filter(
+        (envelope) =>
+          envelope.artifact_type === "startup_opportunity.decision_subject_snapshot.current",
+      )
+      .every(
+        (envelope) =>
+          envelope.document.run_id === manifest.run_id &&
+          envelope.document.research_plan_ref === manifest.current_plan_ref &&
+          Array.isArray(envelope.document.subjects) &&
+          envelope.document.subjects.length === 0,
+      );
+    const closeoutPlanningOnly =
+      hasCancelResearch &&
+      snapshotsAreEmptyTerminalInputs &&
+      envelopes.every((envelope) => allowedTypes.has(envelope.artifact_type));
+    if (closeoutPlanningOnly) {
+      return;
+    }
+
+    throw new StoreError(
+      "run.pre_candidate_stop_barrier",
+      "pre-candidate stop confirmation blocks new research publication until exact cancel_research terminal closeout",
+      {
+        status: manifest.status,
+        currentConfirmationRef: authority.ref,
+        artifactTypes: envelopes.map((envelope) => envelope.artifact_type).sort(),
+        artifactPaths: envelopes.map((envelope) => envelope.artifact_path).sort(),
+      },
+    );
+  }
+
   private preCandidateInterestDecisionIssues(
     manifest: RunManifest,
     fanIn: FormalArtifactEnvelope,
@@ -6787,6 +7216,7 @@ export class RunStore {
       decision.run_id !== manifest.run_id ||
       decision.pre_candidate_source_fan_in_ref !== fanIn.artifact_path ||
       decision.pre_candidate_source_fan_in_hash !== fanIn.content_hash ||
+      preCandidateConfirmationSequence(decision) < 1 ||
       decision.confirmation_basis !== "caller_attested_user_confirmation" ||
       decision.harness_identity_verification !== "not_available"
     ) {
@@ -6822,6 +7252,17 @@ export class RunStore {
           actualHash: row.pre_candidate_content_hash ?? null,
         });
       }
+    }
+    const invalidFollowupRows = dispositionRows.filter(
+      (row) =>
+        row.followup_interest_disposition !== "interested_for_additional_discovery" &&
+        row.followup_interest_disposition !== "not_requested_for_additional_discovery",
+    );
+    if (invalidFollowupRows.length > 0) {
+      issues.push({
+        code: "pre_candidate_interest.followup_interest_disposition_invalid",
+        invalidRefs: invalidFollowupRows.map((row) => String(row.pre_candidate_ref)).sort(),
+      });
     }
     const selectedRefs = dispositionRows
       .filter((row) => row.interest_disposition === "selected_for_continuation")
@@ -9044,6 +9485,29 @@ export class RunStore {
     if (
       !ignoredLate &&
       envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
+      envelope.artifact_type === "startup_opportunity.discovery_fan_in.v2" &&
+      envelope.document.research_plan_ref === next.current_plan_ref
+    ) {
+      const currentRevision = discoveryFanInRevisionFromRef(next.current_discovery_fan_in_ref);
+      const publishedRevision = Number(envelope.document.revision);
+      if (
+        Number.isInteger(publishedRevision) &&
+        publishedRevision > 0 &&
+        publishedRevision >= currentRevision
+      ) {
+        next = {
+          ...next,
+          current_discovery_fan_in_ref: envelope.artifact_path,
+          current_discovery_fan_in_hash: envelope.content_hash,
+          current_pre_candidate_confirmation_ref: null,
+          current_pre_candidate_confirmation_hash: null,
+          current_pre_candidate_confirmation_action: null,
+        };
+      }
+    }
+    if (
+      !ignoredLate &&
+      envelope.schema_version === ARTIFACT_ENVELOPE_SCHEMA_VERSION &&
       [
         "startup_opportunity.research_task.assessment.current",
         "startup_opportunity.research_task.discovery_candidate.current",
@@ -10041,6 +10505,10 @@ export class RunStore {
         prePlanScopeReconciliationAllowed,
       );
     }
+    recoveredManifest = await this.bindCurrentPreCandidateConfirmationStateLocked(
+      runRoot,
+      recoveredManifest,
+    );
     this.validateManifest(recoveredManifest);
     await this.assertScopeBindingLocked(runRoot, recoveredManifest);
     await this.assertManifestRefsExist(runRoot, recoveredManifest);

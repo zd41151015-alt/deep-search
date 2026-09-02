@@ -67,6 +67,10 @@
     "pre_candidate_next_action": {
       "enum": ["proceed_with_selected", "run_additional_discovery_same_scope", "stop_current_run"]
     },
+    "pre_candidate_confirmation_sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
     "pre_candidate_interest_dispositions": {
       "type": "array",
       "minItems": 1,
@@ -74,7 +78,12 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["pre_candidate_ref", "pre_candidate_content_hash", "interest_disposition"],
+        "required": [
+          "pre_candidate_ref",
+          "pre_candidate_content_hash",
+          "interest_disposition",
+          "followup_interest_disposition"
+        ],
         "properties": {
           "pre_candidate_ref": {
             "$ref": "../discovery/candidates/definitions.schema.json#/$defs/concretePreCandidateRef"
@@ -84,6 +93,12 @@
           },
           "interest_disposition": {
             "enum": ["selected_for_continuation", "not_selected_current_run"]
+          },
+          "followup_interest_disposition": {
+            "enum": [
+              "interested_for_additional_discovery",
+              "not_requested_for_additional_discovery"
+            ]
           }
         }
       }
@@ -305,6 +320,7 @@
           "pre_candidate_source_fan_in_ref",
           "pre_candidate_source_fan_in_hash",
           "pre_candidate_next_action",
+          "pre_candidate_confirmation_sequence",
           "pre_candidate_interest_dispositions",
           "confirmation_basis",
           "harness_identity_verification"

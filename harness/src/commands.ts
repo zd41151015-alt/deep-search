@@ -12,7 +12,7 @@ Usage:
   npm run harness -- create-run --run-id ID --mode MODE --geography GEO --customer-model MODEL --target-user USER --decision-goal GOAL --research-language LANG [--created-at TIME]
   npm run harness -- propose-scope --run-id ID --expected-scope-revision N --geography GEO --customer-model MODEL --target-user USER --decision-goal GOAL --research-language LANG --reason REASON
   npm run harness -- confirm-scope --run-id ID --expected-scope-proposal-revision N --expected-scope-proposal-ref REF --expected-scope-proposal-hash HASH --user-confirmation-attestation TEXT
-  npm run harness -- confirm-pre-candidates --run-id ID --expected-fan-in-ref REF --expected-fan-in-hash HASH --next-action ACTION --user-confirmation-attestation TEXT [--selected-pre-candidate-ref REF]
+  npm run harness -- confirm-pre-candidates --run-id ID --expected-fan-in-ref REF --expected-fan-in-hash HASH --next-action ACTION --user-confirmation-attestation TEXT [--selected-pre-candidate-ref REF] [--follow-up-interest-pre-candidate-ref REF]
   npm run harness -- load-run --run-id ID [--observe]
   npm run harness -- status-run --run-id ID
   npm run harness -- admit-prior-input --run-id ID --prior-input-id ID --source-run-id ID --source-artifact-path PATH --target-artifact-path PATH --consumer CONSUMER --reason REASON
@@ -116,12 +116,12 @@ Appends a corrected Scope proposal without claiming user confirmation.
   "confirm-scope": `Usage:
   npm run harness -- confirm-scope --run-id ID --expected-scope-proposal-revision N --expected-scope-proposal-ref REF --expected-scope-proposal-hash HASH --user-confirmation-attestation TEXT [--confirmed-at TIME] [--runs-root DIR]
 
-Binds caller-attested user confirmation to the exact Scope proposal revision/ref/hash.
+Binds caller-attested user confirmation to the exact Scope proposal revision/ref/hash. --confirmed-at is recorded as metadata only.
 `,
   "confirm-pre-candidates": `Usage:
-  npm run harness -- confirm-pre-candidates --run-id ID --expected-fan-in-ref REF --expected-fan-in-hash HASH --next-action ACTION --user-confirmation-attestation TEXT [--selected-pre-candidate-ref REF] [--confirmed-at TIME] [--runs-root DIR]
+  npm run harness -- confirm-pre-candidates --run-id ID --expected-fan-in-ref REF --expected-fan-in-hash HASH --next-action ACTION --user-confirmation-attestation TEXT [--selected-pre-candidate-ref REF] [--follow-up-interest-pre-candidate-ref REF] [--confirmed-at TIME] [--runs-root DIR]
 
-Binds caller-attested user interest to the exact current G2.2 fan-in. ACTION is one of proceed_with_selected, run_additional_discovery_same_scope, or stop_current_run. Repeat --selected-pre-candidate-ref only with proceed_with_selected.
+Binds caller-attested user interest to the exact current G2.2 fan-in. ACTION is one of proceed_with_selected, run_additional_discovery_same_scope, or stop_current_run. Repeat --selected-pre-candidate-ref only with proceed_with_selected; repeat --follow-up-interest-pre-candidate-ref to preserve orthogonal user interest in any fan-in item for same-scope follow-up research. --confirmed-at is recorded as metadata only.
 `,
   "load-run": `Usage:
   npm run harness -- load-run --run-id ID [--runs-root DIR] [--observe]

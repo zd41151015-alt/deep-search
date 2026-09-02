@@ -23,6 +23,11 @@
     "plan_revision",
     "current_decision_subject_snapshot_ref",
     "current_decision_subject_snapshot_hash",
+    "current_discovery_fan_in_ref",
+    "current_discovery_fan_in_hash",
+    "current_pre_candidate_confirmation_ref",
+    "current_pre_candidate_confirmation_hash",
+    "current_pre_candidate_confirmation_action",
     "followup_round",
     "latest_gap_snapshot_ref",
     "pending_adaptation_refs",
@@ -62,6 +67,7 @@
         "synthesizing",
         "reviewing",
         "reporting",
+        "stopping",
         "completed",
         "paused",
         "failed",
@@ -183,6 +189,62 @@
         }
       ]
     },
+    "current_discovery_fan_in_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^artifacts/discovery/fan-in\\.r[1-9][0-9]*\\.json$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "current_discovery_fan_in_hash": {
+      "anyOf": [
+        {
+          "$ref": "./definitions.schema.json#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "current_pre_candidate_confirmation_ref": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^decisions\\.jsonl#pre_candidate_interest_[A-Za-z0-9._:-]+$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "current_pre_candidate_confirmation_hash": {
+      "anyOf": [
+        {
+          "$ref": "./definitions.schema.json#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "current_pre_candidate_confirmation_action": {
+      "anyOf": [
+        {
+          "enum": [
+            "proceed_with_selected",
+            "run_additional_discovery_same_scope",
+            "stop_current_run"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "followup_round": {
       "type": "integer",
       "minimum": 0
@@ -287,6 +349,98 @@
         "properties": {
           "current_decision_subject_snapshot_hash": {
             "$ref": "./definitions.schema.json#/$defs/sha256"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "current_discovery_fan_in_ref": {
+            "type": "null"
+          }
+        },
+        "required": ["current_discovery_fan_in_ref"]
+      },
+      "then": {
+        "properties": {
+          "current_discovery_fan_in_hash": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "current_discovery_fan_in_hash": {
+            "$ref": "./definitions.schema.json#/$defs/sha256"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "current_pre_candidate_confirmation_ref": {
+            "type": "null"
+          }
+        },
+        "required": ["current_pre_candidate_confirmation_ref"]
+      },
+      "then": {
+        "properties": {
+          "current_pre_candidate_confirmation_hash": {
+            "type": "null"
+          },
+          "current_pre_candidate_confirmation_action": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "current_pre_candidate_confirmation_hash": {
+            "$ref": "./definitions.schema.json#/$defs/sha256"
+          },
+          "current_pre_candidate_confirmation_action": {
+            "enum": [
+              "proceed_with_selected",
+              "run_additional_discovery_same_scope",
+              "stop_current_run"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "current_pre_candidate_confirmation_action": {
+            "const": "stop_current_run"
+          }
+        },
+        "required": ["current_pre_candidate_confirmation_action"]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "enum": ["stopping", "cancelled"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "stopping"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "current_pre_candidate_confirmation_action": {
+            "const": "stop_current_run"
           }
         }
       }

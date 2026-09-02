@@ -368,6 +368,11 @@ export function transformPlan(
         : manifest.status_before_clarification,
     current_plan_ref: planPath,
     plan_revision: revision,
+    current_discovery_fan_in_ref: null,
+    current_discovery_fan_in_hash: null,
+    current_pre_candidate_confirmation_ref: null,
+    current_pre_candidate_confirmation_hash: null,
+    current_pre_candidate_confirmation_action: null,
     followup_round:
       addsFollowupWork && hasCompletedWave(basePlan, manifest)
         ? manifest.followup_round + 1

@@ -354,12 +354,16 @@ export async function runConfirmPreCandidates(
   repositoryRoot = process.cwd(),
 ): Promise<number> {
   return runCommand(async () => {
-    const parsed = parseArguments(args, ["--selected-pre-candidate-ref"]);
+    const parsed = parseArguments(args, [
+      "--selected-pre-candidate-ref",
+      "--follow-up-interest-pre-candidate-ref",
+    ]);
     rejectUnknown(parsed, [
       "--run-id",
       "--expected-fan-in-ref",
       "--expected-fan-in-hash",
       "--selected-pre-candidate-ref",
+      "--follow-up-interest-pre-candidate-ref",
       "--next-action",
       "--user-confirmation-attestation",
       "--confirmed-at",
@@ -371,6 +375,8 @@ export async function runConfirmPreCandidates(
       expectedFanInRef: required(parsed, "--expected-fan-in-ref"),
       expectedFanInHash: required(parsed, "--expected-fan-in-hash"),
       selectedPreCandidateRefs: parsed.repeated.get("--selected-pre-candidate-ref") ?? [],
+      followUpInterestPreCandidateRefs:
+        parsed.repeated.get("--follow-up-interest-pre-candidate-ref") ?? [],
       nextAction: required(parsed, "--next-action") as ConfirmPreCandidatesInput["nextAction"],
       userConfirmationAttestation: required(parsed, "--user-confirmation-attestation"),
       ...(confirmedAt === undefined ? {} : { confirmedAt }),

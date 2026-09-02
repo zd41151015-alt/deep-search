@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -8,7 +8,10 @@ import { sha256Hex } from "../harness/src/artifact-store/canonical.js";
 import {
   ArtifactStore,
   canonicalContentHash,
+  canonicalJson,
+  createAdaptationPolicyValidator,
   createArtifactValidator,
+  createPlanRevisionRuntime,
   DispatchLaunchRegistry,
   type DocumentBundle,
   deriveLaneSubmissionContract,
@@ -207,6 +210,304 @@ async function treeSnapshot(root: string, relative = ""): Promise<Record<string,
   return snapshot;
 }
 
+async function preCandidateInterestRecords(
+  state: State,
+): Promise<readonly Record<string, unknown>[]> {
+  return (await decisionRecords(state)).filter(
+    (record) => record.decision_type === "pre_candidate_interest_confirmed",
+  );
+}
+
+async function decisionRecords(state: State): Promise<readonly Record<string, unknown>[]> {
+  return (await readFile(path.join(state.runRoot, "decisions.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+async function publishedBundleFromState(state: State): Promise<DocumentBundle> {
+  const loaded = await state.store.load(state.runId);
+  const documents: { path: string; document: Record<string, unknown> }[] = [
+    { path: "manifest.json", document: loaded.manifest as unknown as Record<string, unknown> },
+  ];
+  for (const artifactRef of [
+    ...new Set([
+      ...loaded.manifest.artifact_refs,
+      ...(loaded.manifest.checkpoint_ref === null ? [] : [loaded.manifest.checkpoint_ref]),
+    ]),
+  ].sort()) {
+    documents.push({
+      path: artifactRef,
+      document: JSON.parse(await readFile(path.join(state.runRoot, artifactRef), "utf8")) as Record<
+        string,
+        unknown
+      >,
+    });
+  }
+  const evidenceStore = new EvidenceStore(state.runsRoot);
+  return {
+    schema_version: "startup_opportunity.document_bundle.current",
+    documents,
+    exact_records: [
+      ...(await decisionRecords(state)).map((record) => ({
+        ref: `decisions.jsonl#${String(record.decision_id)}`,
+        document: record,
+      })),
+      ...(await evidenceStore.listRecords(state.runId)).map((record) => ({
+        ref: `evidence/manifest.jsonl#${record.evidence_id}`,
+        document: record as Record<string, unknown>,
+      })),
+    ],
+  };
+}
+
+const PRE_CANDIDATE_STOP_GAP_REF = "adaptations/gap-snapshots/pre-candidate-stop-closeout.r1.json";
+const PRE_CANDIDATE_CANCEL_DECISION_REF =
+  "adaptations/decisions/pre-candidate-cancel-research.json";
+const PRE_CANDIDATE_STOP_SNAPSHOT_REF = "artifacts/reporting/decision-subject-snapshot.r1.json";
+const PRE_CANDIDATE_STOP_TERMINAL_SOURCE_REF = "artifacts/reporting/terminal-report-source.r1.json";
+
+function preCandidateStopGapEnvelope(
+  state: State,
+  createdAt = "2026-07-27T20:01:00Z",
+): FormalArtifactEnvelope {
+  const gap = {
+    schema_version: "startup_opportunity.gap_snapshot.discovery.plan.current",
+    snapshot_id: "pre_candidate_stop_closeout",
+    snapshot_cycle_key: canonicalContentHash({
+      run_id: state.runId,
+      action: "pre_candidate_stop_closeout",
+      fan_in_ref: G22_FAN_IN,
+    }),
+    run_id: state.runId,
+    based_on_plan_ref: G21_PLAN_REF,
+    revision: 1,
+    parent_snapshot_ref: null,
+    created_at: createdAt,
+    trigger_kind: "wave_completed",
+    trigger_event_ref: null,
+    phase: "discovery",
+    wave_id: "wave_discovery_synthetic",
+    observed_artifact_refs: [G22_FAN_IN],
+    solution_exploration_observations: [],
+    gaps: [
+      {
+        gap_id: "gap_pre_candidate_stop",
+        subject_ref: G22_FAN_IN,
+        gap_type: "user_plan_change_requested",
+        detection_mode: "agent_semantic",
+        triggered_by: {
+          declaration_id: "pre_candidate_stop_confirmation",
+          declared_by: "main_agent",
+          observed_artifact_refs: [G22_FAN_IN],
+          detail: "SYNTHETIC caller attests that the user stopped the current Run.",
+        },
+        decision_impact: ["execution_validity"],
+        severity: "blocking",
+        basis_refs: ["manifest.json", G21_PLAN_REF, G22_FAN_IN],
+        evidence_refs: [],
+        recommended_unit_types: [],
+      },
+    ],
+    material_new_evidence_observed: false,
+    unresolved_decision_relevant_questions: [],
+    stop_signals: ["user_stop"],
+  };
+  return revisionEnvelope(
+    state.runId,
+    PRE_CANDIDATE_STOP_GAP_REF,
+    gap,
+    [G21_PLAN_REF, G22_FAN_IN],
+    createdAt,
+  );
+}
+
+function preCandidateCancelDecisionEnvelope(
+  state: State,
+  stopDecisionRef: string,
+  createdAt = "2026-07-27T20:02:00Z",
+): FormalArtifactEnvelope {
+  const decision = {
+    schema_version: "startup_opportunity.adaptation_decision.discovery.current",
+    adaptation_id: "adapt_pre_candidate_cancel_research",
+    run_id: state.runId,
+    based_on_plan_ref: G21_PLAN_REF,
+    trigger_gap_refs: [],
+    action: "cancel_research",
+    reason: "SYNTHETIC exact pre-candidate stop authority cancels this Run.",
+    expected_decision_impact: ["execution_validity"],
+    stop_condition: "The current Manifest pre-candidate confirmation action is stop_current_run.",
+    requested_by: "user",
+    user_decision_ref: stopDecisionRef,
+    created_at: createdAt,
+  };
+  return revisionEnvelope(
+    state.runId,
+    PRE_CANDIDATE_CANCEL_DECISION_REF,
+    decision,
+    [G21_PLAN_REF, stopDecisionRef],
+    createdAt,
+  );
+}
+
+function emptyDecisionSubjectSnapshotEnvelope(
+  state: State,
+  createdAt = "2026-07-27T20:03:00Z",
+): FormalArtifactEnvelope {
+  const scope = fixtureEnvelope(state.bundle, G21_SCOPE_REF);
+  const plan = fixtureEnvelope(state.bundle, G21_PLAN_REF);
+  const snapshot = {
+    schema_version: "startup_opportunity.decision_subject_snapshot.current",
+    snapshot_id: "decision_subjects_pre_candidate_stop",
+    revision: 1,
+    parent_snapshot_ref: null,
+    parent_snapshot_hash: null,
+    run_id: state.runId,
+    mode: "opportunity_discovery",
+    scope_frame_ref: G21_SCOPE_REF,
+    scope_frame_hash: scope.content_hash,
+    research_plan_ref: G21_PLAN_REF,
+    research_plan_hash: plan.content_hash,
+    synthesis_input_hashes: [],
+    created_at: createdAt,
+    subjects: [],
+    limitations: ["SYNTHETIC no final Opportunity subject formed before user stop."],
+  };
+  return revisionEnvelope(
+    state.runId,
+    PRE_CANDIDATE_STOP_SNAPSHOT_REF,
+    snapshot,
+    [G21_SCOPE_REF, G21_PLAN_REF],
+    createdAt,
+  );
+}
+
+function cancelledTerminalReportEnvelope(
+  state: State,
+  snapshot: FormalArtifactEnvelope,
+  cancelDecisionRef = PRE_CANDIDATE_CANCEL_DECISION_REF,
+  createdAt = "2026-07-27T20:10:00Z",
+): FormalArtifactEnvelope {
+  const formalEvidenceRefs = currentEnvelopes(state.bundle)
+    .filter((envelope) => envelope.artifact_type.startsWith("startup_opportunity.evidence."))
+    .map((envelope) => envelope.artifact_path)
+    .sort();
+  const terminal = {
+    schema_version: "startup_opportunity.terminal_report_source.v1",
+    report_id: "terminal_pre_candidate_stop",
+    run_id: state.runId,
+    mode: "opportunity_discovery",
+    research_language: "en-US",
+    producer_role: "main_agent",
+    owned_output_path: PRE_CANDIDATE_STOP_TERMINAL_SOURCE_REF,
+    materialized_path: "report.json",
+    generated_at: createdAt,
+    decision_subject_snapshot_ref: snapshot.artifact_path,
+    decision_subject_snapshot_hash: snapshot.content_hash,
+    decision_subject_synthesis_hashes: [],
+    current_decision_subject_ids: [],
+    terminal_outcome: "cancelled",
+    decision_question: "SYNTHETIC user stopped the current pre-candidate Run.",
+    execution: {
+      completeness: "partial",
+      completed_stages: ["pre_candidate_confirmation"],
+      incomplete_stages: [
+        {
+          stage: "opportunity_synthesis",
+          cause: "user_stopped",
+          detail: "SYNTHETIC user stopped before G2.3 synthesis.",
+          conclusion_impact: "No Opportunity Thesis is formed from this Run.",
+          related_refs: [G22_FAN_IN],
+        },
+      ],
+      required_followups: [],
+      pending_operation_refs: [cancelDecisionRef],
+    },
+    research_conclusion: {
+      outcome: "no_recommendation",
+      current_recommendation: "SYNTHETIC no recommendation because the user stopped this Run.",
+      meaning: "The Run ended by explicit user stop, not by Evidence rejection.",
+      evidence_strength: "insufficient",
+      allowed_claim: "Only the user-stop terminal disposition is supported.",
+    },
+    runtime_health: { status: "healthy", issues: [] },
+    directions: [],
+    sources: [],
+    excluded_evidence: formalEvidenceRefs.map((evidenceRef) => ({
+      evidence_ref: evidenceRef,
+      reason:
+        "SYNTHETIC user stopped before synthesis, so this formal Evidence remains visible but is not used for a terminal conclusion.",
+    })),
+    commercial_research_audit_refs: [],
+    commercial_uncertainties: [],
+    quantitative_signal_rows: [],
+    competitive_substitute_rows: [],
+    incumbent_response_risk_rows: [],
+    research_coverage_gaps: [],
+    commercial_subject_aggregates: [],
+    commercial_background_material: [],
+    commercial_research_status: {
+      state: "not_planned",
+      planned_task_refs: [],
+      missing_task_refs: [],
+      submitted_audit_refs: [],
+    },
+    gate_warnings: [],
+    ordered_validation_plan: [],
+    freshness: {
+      earliest_valid_as_of: null,
+      latest_valid_as_of: null,
+      summary: "SYNTHETIC terminal stop report contains no market Evidence claim.",
+    },
+    limitations: ["SYNTHETIC terminal source for pre-candidate stop closeout."],
+    external_action_boundary: {
+      execution_owner: "user",
+      execution_supported: false,
+      result_tracking_supported: false,
+      external_validation_claimed: false,
+    },
+    audit_refs: [
+      ...formalEvidenceRefs,
+      G22_FAN_IN,
+      PRE_CANDIDATE_STOP_GAP_REF,
+      cancelDecisionRef,
+      snapshot.artifact_path,
+    ].sort(),
+  };
+  return revisionEnvelope(
+    state.runId,
+    PRE_CANDIDATE_STOP_TERMINAL_SOURCE_REF,
+    terminal,
+    [cancelDecisionRef, snapshot.artifact_path, G22_FAN_IN],
+    createdAt,
+  );
+}
+
+function cancellationApplyInput(
+  state: State,
+  adaptationBundle: DocumentBundle,
+  terminalReportEnvelope: FormalArtifactEnvelope,
+) {
+  return {
+    runId: state.runId,
+    adaptationBundle,
+    adaptationRefs: [PRE_CANDIDATE_CANCEL_DECISION_REF],
+    terminalReportEnvelope,
+    createdAt: "2026-07-27T20:11:00Z",
+    checkpointCreatedAt: "2026-07-27T20:12:00Z",
+    nextStep: "SYNTHETIC cancelled by the exact current pre-candidate stop authority.",
+    beliefSummary: {
+      current_belief: "SYNTHETIC the Run has no selected pre-candidate to continue.",
+      evidence_that_changed_belief: [],
+      unchanged_assumptions: ["SYNTHETIC no market validation is claimed."],
+      remaining_disagreement: [],
+      next_decision_relevant_question:
+        "SYNTHETIC whether a new Run with a fresh Scope should be started.",
+    },
+  };
+}
+
 function refreshRetainedPreCandidateBindings(bundle: DocumentBundle): void {
   const preCandidate = effective(bundle, G22_RETAINED_PRE_CANDIDATE);
   const preCandidateHash = canonicalContentHash(preCandidate);
@@ -235,6 +536,9 @@ function refreshRetainedPreCandidateBindings(bundle: DocumentBundle): void {
   ).find((candidate) => candidate.pre_candidate_ref === G22_RETAINED_PRE_CANDIDATE);
   assert.ok(interestDisposition);
   interestDisposition.pre_candidate_content_hash = preCandidateHash;
+  const manifest = effective(bundle, "manifest.json");
+  manifest.current_discovery_fan_in_hash = entry(bundle, G22_FAN_IN).content_hash;
+  manifest.current_pre_candidate_confirmation_hash = canonicalContentHash(interestDecision);
 
   for (const conversionRef of [
     G23_DEMAND_CONVERSION,
@@ -1154,6 +1458,420 @@ test("G2.3 publication requires the pre-candidate confirmation exact JSONL recei
     (error: unknown) => error instanceof StoreError && error.code === "recovery.missing_operation",
   );
   assert.deepEqual(await treeSnapshot(state.runRoot), before);
+});
+
+test("pre-candidate confirmation uses append order across all three actions and ignores timestamp order", async (context) => {
+  const state = await setup(context, "pre-candidate-sequence-authority");
+  await publishThroughFanIn(state, { confirmPreCandidates: false });
+  const fanIn = runtimeEnvelope(state.bundle, G22_FAN_IN);
+
+  const additional = await state.store.confirmPreCandidates({
+    runId: state.runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: fanIn.content_hash,
+    selectedPreCandidateRefs: [],
+    followUpInterestPreCandidateRefs: [G22_REJECTED_PRE_CANDIDATE, G22_WATCHLIST_PRE_CANDIDATE],
+    nextAction: "run_additional_discovery_same_scope",
+    userConfirmationAttestation:
+      "SYNTHETIC caller attests that the user wants targeted same-scope follow-up.",
+    confirmedAt: "2099-01-01T00:00:00Z",
+  });
+  assert.equal(
+    (await state.store.status(state.runId)).manifest.current_pre_candidate_confirmation_ref,
+    additional.decisionRef,
+  );
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: synthesisEnvelopes(state.bundle),
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "run.discovery_synthesis_pre_candidate_confirmation_invalid",
+  );
+
+  const stop = await state.store.confirmPreCandidates({
+    runId: state.runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: fanIn.content_hash,
+    selectedPreCandidateRefs: [],
+    followUpInterestPreCandidateRefs: [G22_WATCHLIST_PRE_CANDIDATE],
+    nextAction: "stop_current_run",
+    userConfirmationAttestation: "SYNTHETIC caller attests that the user stopped the current Run.",
+    confirmedAt: "2020-01-01T00:00:00Z",
+  });
+  assert.equal((await state.store.status(state.runId)).manifest.status, "stopping");
+
+  const proceed = await state.store.confirmPreCandidates({
+    runId: state.runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: fanIn.content_hash,
+    selectedPreCandidateRefs: [G22_RETAINED_PRE_CANDIDATE],
+    nextAction: "proceed_with_selected",
+    userConfirmationAttestation:
+      "SYNTHETIC caller attests that the user later selected the retained pre-candidate.",
+    confirmedAt: "2020-01-01T00:00:00Z",
+  });
+  const status = await state.store.status(state.runId);
+  assert.equal(status.manifest.status, "researching");
+  assert.equal(status.manifest.current_pre_candidate_confirmation_ref, proceed.decisionRef);
+  assert.equal(status.manifest.current_pre_candidate_confirmation_action, "proceed_with_selected");
+
+  const records = await preCandidateInterestRecords(state);
+  const stopRecord = records.find(
+    (record) => `decisions.jsonl#${String(record.decision_id)}` === stop.decisionRef,
+  );
+  assert.ok(stopRecord);
+  assert.deepEqual(
+    records.map((record) => record.pre_candidate_confirmation_sequence),
+    [1, 2, 3],
+  );
+  assert.deepEqual(
+    records.map((record) => record.timestamp),
+    ["2099-01-01T00:00:00Z", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z"],
+  );
+  const additionalRecord = records.find(
+    (record) => `decisions.jsonl#${String(record.decision_id)}` === additional.decisionRef,
+  );
+  assert.ok(additionalRecord);
+  const followupRows = additionalRecord.pre_candidate_interest_dispositions as Record<
+    string,
+    unknown
+  >[];
+  assert.deepEqual(
+    followupRows
+      .filter((row) => row.followup_interest_disposition === "interested_for_additional_discovery")
+      .map((row) => String(row.pre_candidate_ref))
+      .sort(),
+    [G22_REJECTED_PRE_CANDIDATE, G22_WATCHLIST_PRE_CANDIDATE].sort(),
+  );
+
+  const manifestPath = path.join(state.runRoot, "manifest.json");
+  const originalManifestBytes = await readFile(manifestPath, "utf8");
+  try {
+    const staleManifest = clone(status.manifest) as Record<string, unknown>;
+    staleManifest.status = "stopping";
+    staleManifest.current_pre_candidate_confirmation_ref = stop.decisionRef;
+    staleManifest.current_pre_candidate_confirmation_hash = canonicalContentHash(stopRecord);
+    staleManifest.current_pre_candidate_confirmation_action = "stop_current_run";
+    staleManifest.updated_at = "2026-07-27T20:00:30Z";
+    await writeFile(manifestPath, `${canonicalJson(staleManifest)}\n`);
+    await assert.rejects(
+      state.store.publishArtifactBundle({
+        runId: state.runId,
+        envelopes: synthesisEnvelopes(state.bundle),
+      }),
+      (error: unknown) =>
+        error instanceof StoreError && error.code === "manifest.pre_candidate_confirmation_stale",
+    );
+  } finally {
+    await writeFile(manifestPath, originalManifestBytes);
+  }
+
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: synthesisEnvelopes(state.bundle),
+  });
+  const offline = await publishedBundleFromState(state);
+  const validator = await createArtifactValidator(repositoryRoot);
+  const offlineResult = validator.validateDocumentBundle(offline);
+  assert.equal(offlineResult.valid, true, JSON.stringify(offlineResult.referenceErrors, null, 2));
+
+  const staleManifest = clone(offline);
+  const manifest = effective(staleManifest, "manifest.json");
+  const stoppedRecord = exactRecordDocument(staleManifest, stop.decisionRef);
+  manifest.current_pre_candidate_confirmation_ref = stop.decisionRef;
+  manifest.current_pre_candidate_confirmation_hash = canonicalContentHash(stoppedRecord);
+  manifest.current_pre_candidate_confirmation_action = "stop_current_run";
+  const staleResult = validator.validateDocumentBundle(staleManifest);
+  assert.equal(staleResult.valid, false);
+  assert.ok(
+    staleResult.referenceErrors.some(
+      (error) => error.code === "runtime.discovery_synthesis_pre_candidate_confirmation_stale",
+    ),
+    JSON.stringify(staleResult.referenceErrors, null, 2),
+  );
+
+  const duplicateSequence = clone(offline);
+  exactRecordDocument(
+    duplicateSequence,
+    additional.decisionRef,
+  ).pre_candidate_confirmation_sequence = 3;
+  const duplicateResult = validator.validateDocumentBundle(duplicateSequence);
+  assert.equal(duplicateResult.valid, false);
+  assert.ok(
+    duplicateResult.referenceErrors.some(
+      (error) => error.code === "runtime.discovery_synthesis_pre_candidate_confirmation_stale",
+    ),
+    JSON.stringify(duplicateResult.referenceErrors, null, 2),
+  );
+});
+
+test("stop_current_run blocks new research while exact cancel closeout and replay remain reachable", async (context) => {
+  const state = await setup(context, "pre-candidate-stop-barrier");
+  await publishThroughFanIn(state, { confirmPreCandidates: false });
+  const fanIn = runtimeEnvelope(state.bundle, G22_FAN_IN);
+  const stop = await state.store.confirmPreCandidates({
+    runId: state.runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: fanIn.content_hash,
+    selectedPreCandidateRefs: [],
+    followUpInterestPreCandidateRefs: [G22_WATCHLIST_PRE_CANDIDATE],
+    nextAction: "stop_current_run",
+    userConfirmationAttestation: "SYNTHETIC caller attests that the user stopped this current Run.",
+    confirmedAt: "2026-07-27T19:59:30Z",
+  });
+  assert.equal((await state.store.status(state.runId)).manifest.status, "stopping");
+  await assert.rejects(
+    state.store.assertResearchExecutionAllowed(state.runId),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.pre_candidate_stop_barrier",
+  );
+
+  const blockedWave = discoveryWaveEnvelopes(
+    state.bundle,
+    state.runId,
+    "startup_opportunity.research_task.discovery_candidate.current",
+    2,
+    "blocked_after_pre_candidate_stop",
+  );
+  await assert.rejects(
+    state.store.publishArtifactBundle({ runId: state.runId, envelopes: blockedWave }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.pre_candidate_stop_barrier",
+  );
+
+  const publishedDispatch = discoveryWaveEnvelopes(
+    state.bundle,
+    state.runId,
+    "startup_opportunity.research_task.discovery_candidate.current",
+    1,
+    "candidate_runtime",
+  ).find(
+    (envelope) => envelope.artifact_type === "startup_opportunity.dispatch_batch.discovery.current",
+  );
+  assert.ok(publishedDispatch);
+  const registry = new DispatchLaunchRegistry(state.runsRoot, state.validator, repositoryRoot);
+  const checklist = await registry.check(
+    state.runId,
+    publishedDispatch.artifact_path,
+    publishedDispatch.content_hash,
+  );
+  await assert.rejects(
+    registry.register({
+      schema_version: "startup_opportunity.dispatch_launch_registration_request.v1",
+      request_id: "blocked_launch_after_pre_candidate_stop",
+      run_id: state.runId,
+      dispatch_ref: publishedDispatch.artifact_path,
+      dispatch_hash: publishedDispatch.content_hash,
+      registered_at: "2026-07-27T20:00:00Z",
+      registrations: checklist.checklist.map((entry) => ({
+        unit_id: entry.unit_id,
+        task_ref: entry.task_ref,
+        task_id: entry.task_id,
+        attempt: entry.attempt,
+        execution_attempt_id: `blocked_after_stop_${entry.unit_id}`,
+      })),
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.pre_candidate_stop_barrier",
+  );
+
+  const untrackedLane = clone(runtimeEnvelope(state.bundle, G22_FINDING)) as {
+    artifact_path: string;
+  } & FormalArtifactEnvelope;
+  untrackedLane.artifact_path = "findings/discovery/blocked-after-pre-candidate-stop.json";
+  await assert.rejects(
+    state.store.publishArtifact({ runId: state.runId, envelope: untrackedLane }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.pre_candidate_stop_barrier",
+  );
+  const untrackedSnapshot = emptyDecisionSubjectSnapshotEnvelope(state, "2026-07-27T20:00:30Z");
+  await assert.rejects(
+    state.store.publishArtifact({ runId: state.runId, envelope: untrackedSnapshot }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "run.pre_candidate_stop_barrier",
+  );
+  const replay = await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: runtimeEnvelope(state.bundle, G22_FINDING),
+  });
+  assert.equal(replay.status, "idempotent_replay");
+
+  const gap = preCandidateStopGapEnvelope(state);
+  const cancelDecision = preCandidateCancelDecisionEnvelope(state, stop.decisionRef);
+  const snapshot = emptyDecisionSubjectSnapshotEnvelope(state);
+  for (const envelope of [gap, cancelDecision, snapshot]) {
+    const validation = state.validator.validateDocument(envelope, envelope.artifact_path);
+    assert.equal(
+      validation.valid,
+      true,
+      `${envelope.artifact_path}: ${JSON.stringify(validation.errors, null, 2)}`,
+    );
+  }
+  await state.store.publishArtifactBundle({
+    runId: state.runId,
+    envelopes: [gap, cancelDecision, snapshot],
+  });
+  const offline = await publishedBundleFromState(state);
+  const offlineResult = state.validator.validateDocumentBundle(offline);
+  assert.equal(offlineResult.valid, true, JSON.stringify(offlineResult.referenceErrors, null, 2));
+
+  const terminal = cancelledTerminalReportEnvelope(state, snapshot);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+  const input = cancellationApplyInput(state, offline, terminal);
+  await assert.rejects(
+    runtime.apply({ ...input, faultAt: "after_manifest_update" }),
+    (error: unknown) => error instanceof StoreError && error.code === "fault.injected",
+  );
+  const recovered = await new RunStore(
+    state.runsRoot,
+    await createArtifactValidator(repositoryRoot),
+  ).load(state.runId);
+  assert.equal(recovered.manifest.status, "cancelled");
+  assert.equal(recovered.manifest.current_pre_candidate_confirmation_ref, stop.decisionRef);
+  assert.equal((await runtime.apply(input)).status, "idempotent_replay");
+});
+
+test("stale pre-candidate stop authority cannot cancel after later proceed confirmation", async (context) => {
+  const state = await setup(context, "pre-candidate-stale-stop-cancel");
+  await publishThroughFanIn(state, { confirmPreCandidates: false });
+  const fanIn = runtimeEnvelope(state.bundle, G22_FAN_IN);
+  const stop = await state.store.confirmPreCandidates({
+    runId: state.runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: fanIn.content_hash,
+    selectedPreCandidateRefs: [],
+    nextAction: "stop_current_run",
+    userConfirmationAttestation:
+      "SYNTHETIC caller attests that the user initially stopped this Run.",
+    confirmedAt: "2020-01-01T00:00:00Z",
+  });
+  const proceed = await state.store.confirmPreCandidates({
+    runId: state.runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: fanIn.content_hash,
+    selectedPreCandidateRefs: [G22_RETAINED_PRE_CANDIDATE],
+    nextAction: "proceed_with_selected",
+    userConfirmationAttestation:
+      "SYNTHETIC caller attests that the user later selected the retained pre-candidate.",
+    confirmedAt: "2020-01-01T00:00:00Z",
+  });
+  const status = await state.store.status(state.runId);
+  assert.equal(status.manifest.status, "researching");
+  assert.equal(status.manifest.current_pre_candidate_confirmation_ref, proceed.decisionRef);
+
+  await state.store.publishArtifact({
+    runId: state.runId,
+    envelope: preCandidateCancelDecisionEnvelope(state, stop.decisionRef, "2026-07-27T20:05:00Z"),
+  });
+  const offline = await publishedBundleFromState(state);
+  const adaptationValidator = await createAdaptationPolicyValidator(repositoryRoot);
+  const offlineResult = adaptationValidator.validateDocumentBundle(offline, {
+    exactJsonlRecords: new Map(
+      (offline.exact_records ?? []).map((record) => [record.ref, record.document]),
+    ),
+  });
+  assert.equal(offlineResult.valid, false);
+  assert.ok(
+    offlineResult.adaptationErrors.some(
+      (error) => error.code === "adaptation.cancellation_authority_invalid",
+    ),
+    JSON.stringify(offlineResult.adaptationErrors, null, 2),
+  );
+
+  const beforeApply = await treeSnapshot(state.runRoot);
+  const runtime = await createPlanRevisionRuntime(repositoryRoot, state.runsRoot);
+  const unpublishedSnapshot = emptyDecisionSubjectSnapshotEnvelope(state, "2026-07-27T20:06:00Z");
+  await assert.rejects(
+    runtime.apply(
+      cancellationApplyInput(
+        state,
+        offline,
+        cancelledTerminalReportEnvelope(
+          state,
+          unpublishedSnapshot,
+          PRE_CANDIDATE_CANCEL_DECISION_REF,
+          "2026-07-27T20:07:00Z",
+        ),
+      ),
+    ),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "adaptation.policy_invalid" &&
+      (
+        (error.details as Record<string, unknown>).result as {
+          adaptationErrors?: readonly { code?: string }[];
+        }
+      ).adaptationErrors?.some(
+        (candidate) => candidate.code === "adaptation.cancellation_authority_invalid",
+      ) === true,
+  );
+  assert.deepEqual(await treeSnapshot(state.runRoot), beforeApply);
+});
+
+test("follow-up interest preserves watchlist and rejected directions without making them G2.3-eligible", async (context) => {
+  const state = await setup(context, "followup-interest-nonretained");
+  await publishThroughFanIn(state, { confirmPreCandidates: false });
+  const fanIn = runtimeEnvelope(state.bundle, G22_FAN_IN);
+  const additional = await state.store.confirmPreCandidates({
+    runId: state.runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: fanIn.content_hash,
+    selectedPreCandidateRefs: [],
+    followUpInterestPreCandidateRefs: [G22_REJECTED_PRE_CANDIDATE, G22_WATCHLIST_PRE_CANDIDATE],
+    nextAction: "run_additional_discovery_same_scope",
+    userConfirmationAttestation:
+      "SYNTHETIC caller attests that the user is interested in weak directions for follow-up only.",
+    confirmedAt: "2026-07-27T19:50:00Z",
+  });
+  assert.deepEqual(additional.selectedPreCandidateRefs, []);
+  assert.deepEqual(
+    additional.followUpInterestPreCandidateRefs,
+    [G22_REJECTED_PRE_CANDIDATE, G22_WATCHLIST_PRE_CANDIDATE].sort(),
+  );
+
+  await assert.rejects(
+    state.store.confirmPreCandidates({
+      runId: state.runId,
+      expectedFanInRef: G22_FAN_IN,
+      expectedFanInHash: fanIn.content_hash,
+      selectedPreCandidateRefs: [G22_WATCHLIST_PRE_CANDIDATE],
+      nextAction: "proceed_with_selected",
+      userConfirmationAttestation:
+        "SYNTHETIC caller attempts to formalize a watchlist pre-candidate directly.",
+      confirmedAt: "2026-07-27T19:51:00Z",
+    }),
+    (error: unknown) =>
+      error instanceof StoreError && error.code === "pre_candidate_interest.confirmation_invalid",
+  );
+
+  await state.store.confirmPreCandidates({
+    runId: state.runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: fanIn.content_hash,
+    selectedPreCandidateRefs: [G22_RETAINED_PRE_CANDIDATE],
+    nextAction: "proceed_with_selected",
+    userConfirmationAttestation:
+      "SYNTHETIC caller attests that only the retained pre-candidate is selected for G2.3.",
+    confirmedAt: "2026-07-27T19:52:00Z",
+  });
+
+  const nonRetainedSynthesis = clone(state.bundle);
+  const watchlist = runtimeEnvelope(nonRetainedSynthesis, G22_WATCHLIST_PRE_CANDIDATE);
+  const conversion = effective(nonRetainedSynthesis, G23_DEMAND_CONVERSION);
+  conversion.source_pre_candidate_ref = G22_WATCHLIST_PRE_CANDIDATE;
+  conversion.source_pre_candidate_content_hash = watchlist.content_hash;
+  refresh(nonRetainedSynthesis, G23_DEMAND_CONVERSION);
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: synthesisEnvelopes(nonRetainedSynthesis),
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "run.discovery_synthesis_pre_candidate_not_retained",
+  );
 });
 
 test("G2.3 preserves explicit single-Solution exploration states and provisional posture", async (context) => {
@@ -3442,6 +4160,60 @@ test("candidate fan-in uses exact Dispatch delivery authority and preserves extr
   const dispositions = projected?.document.candidate_dispositions as Record<string, unknown>[];
   assert.equal(dispositions[0]?.rationale, "Partial and opposing material remain visible.");
   assert.equal(dispositions.length, 1);
+});
+
+test("candidate fan-in projection preserves immutable r2 parent lineage for same-Run follow-up", () => {
+  const fixture = fanInProjectionFixture();
+  const [parent] = projectCandidateFanIn([fixture.declaration], fixture.authority, fixture.context);
+  assert.ok(parent);
+
+  const r2PlanRef = "plans/research-plan.r2.json";
+  const r2ExecutionRef = "plans/research-execution.r2.json";
+  const documentsByPath = new Map(fixture.context.documentsByPath);
+  documentsByPath.set(parent.artifact_path, parent.document);
+  const r2Plan = {
+    ...clone(fixture.context.currentPlan),
+    revision: 2,
+    parent_plan_ref: fixture.context.currentPlanRef,
+  };
+  documentsByPath.set(r2PlanRef, r2Plan);
+
+  const dispatch = clone(documentsByPath.get(fixture.authority.dispatch_ref) ?? {});
+  dispatch.research_plan_ref = r2PlanRef;
+  dispatch.execution_plan_ref = r2ExecutionRef;
+  documentsByPath.set(fixture.authority.dispatch_ref, dispatch);
+
+  const taskRef = "tasks/discovery/unit-demand.attempt-1.json";
+  const task = clone(documentsByPath.get(taskRef) ?? {});
+  task.research_plan_ref = r2PlanRef;
+  documentsByPath.set(taskRef, task);
+
+  const receiptRef = "receipts/lane-unit-demand.json";
+  const receipt = clone(documentsByPath.get(receiptRef) ?? {});
+  receipt.research_plan_ref = r2PlanRef;
+  receipt.execution_plan_ref = r2ExecutionRef;
+  documentsByPath.set(receiptRef, receipt);
+
+  const declaration: DiscoveryObjectDeclaration = {
+    ...clone(fixture.declaration),
+    action: "revise",
+    local_refs: {
+      ...(fixture.declaration.local_refs ?? {}),
+      parent: parent.artifact_path,
+    },
+  };
+  const [projected] = projectCandidateFanIn([declaration], fixture.authority, {
+    ...fixture.context,
+    currentPlanRef: r2PlanRef,
+    currentPlan: r2Plan,
+    documentsByPath,
+  });
+
+  assert.equal(projected?.artifact_path, "artifacts/discovery/fan-in.r2.json");
+  assert.equal(projected?.document.revision, 2);
+  assert.equal(projected?.document.parent_fan_in_ref, parent.artifact_path);
+  assert.equal(projected?.document.parent_content_hash, canonicalContentHash(parent.document));
+  assert.equal(projected?.document.research_plan_ref, r2PlanRef);
 });
 
 test("fan-in replay classification binds non-delivery status and decision impact", () => {

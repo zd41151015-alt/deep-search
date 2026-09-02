@@ -9,6 +9,7 @@
     "fan_in_id",
     "revision",
     "parent_fan_in_ref",
+    "parent_content_hash",
     "run_id",
     "mode",
     "phase",
@@ -44,10 +45,29 @@
       "$ref": "../candidates/definitions.schema.json#/$defs/identifier"
     },
     "revision": {
-      "const": 1
+      "type": "integer",
+      "minimum": 1
     },
     "parent_fan_in_ref": {
-      "type": "null"
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^artifacts/discovery/fan-in\\.r[1-9][0-9]*\\.json$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "parent_content_hash": {
+      "anyOf": [
+        {
+          "$ref": "../candidates/definitions.schema.json#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "run_id": {
       "$ref": "../candidates/definitions.schema.json#/$defs/runId"

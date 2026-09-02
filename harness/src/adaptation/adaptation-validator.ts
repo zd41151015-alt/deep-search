@@ -120,9 +120,98 @@ function validateCompletionClosure(
   }
 }
 
+function preCandidateConfirmationSequence(record: Record<string, unknown>): number {
+  const sequence = record.pre_candidate_confirmation_sequence;
+  return Number.isInteger(sequence) && Number(sequence) > 0 ? Number(sequence) : 0;
+}
+
+function preCandidateConfirmationRef(record: Record<string, unknown>): string | null {
+  return typeof record.decision_id === "string" ? `decisions.jsonl#${record.decision_id}` : null;
+}
+
+function currentPreCandidateStopAuthorityDetails(
+  ref: unknown,
+  record: Record<string, unknown> | undefined,
+  manifest: Record<string, unknown>,
+  exactRecords: ReadonlyMap<string, Record<string, unknown>>,
+): { readonly valid: boolean; readonly details: Record<string, unknown> } {
+  const manifestFanInRef = manifest.current_discovery_fan_in_ref;
+  const manifestFanInHash = manifest.current_discovery_fan_in_hash;
+  const currentRef = manifest.current_pre_candidate_confirmation_ref;
+  const currentHash = manifest.current_pre_candidate_confirmation_hash;
+  const recordRef = record === undefined ? null : preCandidateConfirmationRef(record);
+  const actualHash = record === undefined ? null : canonicalContentHash(record);
+  const sameFanInConfirmations =
+    typeof manifestFanInRef === "string" && typeof manifestFanInHash === "string"
+      ? [...exactRecords.entries()]
+          .filter(
+            ([decisionRef, decisionRecord]) =>
+              decisionRef.startsWith("decisions.jsonl#") &&
+              decisionRecord.schema_version === "startup_opportunity.decision.v1" &&
+              decisionRecord.decision_type === "pre_candidate_interest_confirmed" &&
+              decisionRecord.run_id === manifest.run_id &&
+              decisionRecord.pre_candidate_source_fan_in_ref === manifestFanInRef &&
+              decisionRecord.pre_candidate_source_fan_in_hash === manifestFanInHash &&
+              preCandidateConfirmationSequence(decisionRecord) > 0,
+          )
+          .map(([decisionRef, decisionRecord]) => ({
+            ref: decisionRef,
+            sequence: preCandidateConfirmationSequence(decisionRecord),
+          }))
+          .sort(
+            (left, right) => left.sequence - right.sequence || left.ref.localeCompare(right.ref),
+          )
+      : [];
+  const sequenceGroups = new Map<number, string[]>();
+  for (const entry of sameFanInConfirmations) {
+    sequenceGroups.set(entry.sequence, [...(sequenceGroups.get(entry.sequence) ?? []), entry.ref]);
+  }
+  const duplicateSequences = [...sequenceGroups.entries()]
+    .filter(([, refs]) => refs.length > 1)
+    .map(([sequence, refs]) => ({ sequence, refs: refs.sort() }));
+  const latest = sameFanInConfirmations.at(-1);
+  const valid =
+    typeof ref === "string" &&
+    record !== undefined &&
+    record.schema_version === "startup_opportunity.decision.v1" &&
+    record.decision_type === "pre_candidate_interest_confirmed" &&
+    record.run_id === manifest.run_id &&
+    record.actor === "main_agent" &&
+    record.pre_candidate_next_action === "stop_current_run" &&
+    record.confirmation_basis === "caller_attested_user_confirmation" &&
+    record.harness_identity_verification === "not_available" &&
+    preCandidateConfirmationSequence(record) > 0 &&
+    recordRef === ref &&
+    ref === currentRef &&
+    actualHash === currentHash &&
+    manifest.current_pre_candidate_confirmation_action === "stop_current_run" &&
+    record.pre_candidate_source_fan_in_ref === manifestFanInRef &&
+    record.pre_candidate_source_fan_in_hash === manifestFanInHash &&
+    duplicateSequences.length === 0 &&
+    latest?.ref === ref;
+  return {
+    valid,
+    details: {
+      userDecisionRef: typeof ref === "string" ? ref : null,
+      currentPreCandidateConfirmationRef: typeof currentRef === "string" ? currentRef : null,
+      currentPreCandidateConfirmationAction:
+        typeof manifest.current_pre_candidate_confirmation_action === "string"
+          ? manifest.current_pre_candidate_confirmation_action
+          : null,
+      currentPreCandidateConfirmationHash: typeof currentHash === "string" ? currentHash : null,
+      userDecisionHash: actualHash,
+      currentFanInRef: typeof manifestFanInRef === "string" ? manifestFanInRef : null,
+      currentFanInHash: typeof manifestFanInHash === "string" ? manifestFanInHash : null,
+      latestPreCandidateConfirmationRef: latest?.ref ?? null,
+      duplicateSequences,
+    },
+  };
+}
+
 function validateCancellationAuthority(
   decisionPath: string,
   decision: Record<string, unknown>,
+  manifest: Record<string, unknown>,
   exactRecords: ReadonlyMap<string, Record<string, unknown>>,
   errors: ValidationIssue[],
 ): void {
@@ -132,26 +221,25 @@ function validateCancellationAuthority(
     record?.schema_version === "startup_opportunity.decision.v1" &&
     record.decision_type === "run_cancelled" &&
     record.actor === "user";
-  const isPreCandidateStop =
-    record?.schema_version === "startup_opportunity.decision.v1" &&
-    record.decision_type === "pre_candidate_interest_confirmed" &&
-    record.actor === "main_agent" &&
-    record.pre_candidate_next_action === "stop_current_run" &&
-    record.confirmation_basis === "caller_attested_user_confirmation" &&
-    record.harness_identity_verification === "not_available";
+  const preCandidateStop = currentPreCandidateStopAuthorityDetails(
+    ref,
+    record,
+    manifest,
+    exactRecords,
+  );
   if (
     typeof ref !== "string" ||
     record === undefined ||
     record.run_id !== decision.run_id ||
     ref.split("#", 2)[1] !== record.decision_id ||
-    (!isLegacyCancellation && !isPreCandidateStop)
+    (!isLegacyCancellation && !preCandidateStop.valid)
   ) {
     errors.push(
       issue(
         "adaptation.cancellation_authority_invalid",
         `${decisionPath}#/user_decision_ref`,
-        "cancel_research requires the exact same-Run user run_cancelled Decision or a caller-attested pre-candidate stop decision",
-        { userDecisionRef: typeof ref === "string" ? ref : null },
+        "cancel_research requires the exact same-Run user run_cancelled Decision or the Manifest-current pre-candidate stop decision",
+        preCandidateStop.details,
       ),
     );
   }
@@ -588,8 +676,17 @@ export class AdaptationPolicyValidator {
       ) {
         validateCompletionClosure(decision.path, plan.document, manifest.document, errors);
       }
-      if (decision.document.action === "cancel_research") {
-        validateCancellationAuthority(decision.path, decision.document, exactRecords, errors);
+      if (
+        decision.document.action === "cancel_research" &&
+        manifest?.schemaVersion === "startup_opportunity.run_manifest.v1"
+      ) {
+        validateCancellationAuthority(
+          decision.path,
+          decision.document,
+          manifest.document,
+          exactRecords,
+          errors,
+        );
       }
 
       const gapRef = Array.isArray(decision.document.trigger_gap_refs)
@@ -1272,7 +1369,7 @@ export class AdaptationPolicyValidator {
         validateCompletionClosure(decisionPath, plan, manifest, errors);
         break;
       case "cancel_research":
-        validateCancellationAuthority(decisionPath, decision, exactRecords, errors);
+        validateCancellationAuthority(decisionPath, decision, manifest, exactRecords, errors);
         break;
     }
   }

@@ -284,6 +284,11 @@ export async function createDiscoveryRuntimeFixture(
   manifest.status = "researching";
   manifest.completed_units = ["unit_counterfactual", "unit_seed_independent_demand"];
   manifest.active_units = [];
+  manifest.current_discovery_fan_in_ref = G22_FAN_IN;
+  manifest.current_discovery_fan_in_hash = fixtureEnvelope(bundle, G22_FAN_IN).content_hash;
+  manifest.current_pre_candidate_confirmation_ref = null;
+  manifest.current_pre_candidate_confirmation_hash = null;
+  manifest.current_pre_candidate_confirmation_action = null;
   manifest.artifact_refs = mutable.documents
     .filter((entry) => entry.path !== "manifest.json")
     .map((entry) => entry.path)

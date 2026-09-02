@@ -593,7 +593,11 @@ function draftObjects(
     }
     const parentField = PARENT_FIELDS[type];
     if (parentField !== undefined) document[parentField] = parent?.path ?? null;
-    if ("parent_content_hash" in document || SYNTHESIS_TYPES.has(type)) {
+    if (
+      "parent_content_hash" in document ||
+      SYNTHESIS_TYPES.has(type) ||
+      type === "startup_opportunity.discovery_fan_in.v2"
+    ) {
       document.parent_content_hash = parent === null ? null : canonicalContentHash(parent.document);
     }
     const override = pathOverrides[type];
@@ -1420,10 +1424,16 @@ export function projectCandidateFanIn(
     }
   }
   const fanIn = drafted.find((entry) => entry.type === "startup_opportunity.discovery_fan_in.v2");
-  if (fanIn === undefined || fanIn.document.revision !== 1) {
+  if (
+    fanIn === undefined ||
+    !Number.isInteger(fanIn.document.revision) ||
+    Number(fanIn.document.revision) < 1 ||
+    (fanIn.document.revision === 1 &&
+      (fanIn.document.parent_fan_in_ref !== null || fanIn.document.parent_content_hash !== null))
+  ) {
     throw new StoreError(
       "formal_materialization.fan_in_revision_invalid",
-      "current Discovery Fan-in contract accepts one initial immutable Fan-in revision",
+      "Discovery Fan-in revision must be an immutable create/revise chain rooted at r1",
     );
   }
   fanIn.document.mode = context.currentPlan.mode;

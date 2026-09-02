@@ -440,29 +440,38 @@ function target(
   return typeof ref === "string" ? (byPath.get(ref.split("#", 1)[0] ?? "") ?? null) : null;
 }
 
-function latestPreCandidateInterestDecision(
+function preCandidateConfirmationSequence(record: Record<string, unknown>): number {
+  const sequence = record.pre_candidate_confirmation_sequence;
+  return Number.isInteger(sequence) && Number(sequence) > 0 ? Number(sequence) : 0;
+}
+
+function preCandidateConfirmationEntriesForFanIn(
   exactJsonlRecords: ReadonlyMap<string, Record<string, unknown>>,
+  runId: unknown,
   fanInRef: string,
-): { readonly ref: string; readonly document: Record<string, unknown> } | null {
-  return (
-    [...exactJsonlRecords.entries()]
-      .filter(
-        ([, document]) =>
-          document.schema_version === "startup_opportunity.decision.v1" &&
-          document.decision_type === "pre_candidate_interest_confirmed" &&
-          document.pre_candidate_source_fan_in_ref === fanInRef,
-      )
-      .map(([ref, document]) => ({ ref, document }))
-      .sort((left, right) => {
-        const timeDifference =
-          Date.parse(String(right.document.timestamp ?? "")) -
-          Date.parse(String(left.document.timestamp ?? ""));
-        if (Number.isFinite(timeDifference) && timeDifference !== 0) return timeDifference;
-        return String(right.document.decision_id ?? "").localeCompare(
-          String(left.document.decision_id ?? ""),
-        );
-      })[0] ?? null
-  );
+  fanInHash: string | null,
+): readonly {
+  readonly ref: string;
+  readonly sequence: number;
+  readonly record: Record<string, unknown>;
+}[] {
+  return [...exactJsonlRecords.entries()]
+    .filter(
+      ([ref, record]) =>
+        ref.startsWith("decisions.jsonl#") &&
+        record.schema_version === "startup_opportunity.decision.v1" &&
+        record.decision_type === "pre_candidate_interest_confirmed" &&
+        record.run_id === runId &&
+        record.pre_candidate_source_fan_in_ref === fanInRef &&
+        record.pre_candidate_source_fan_in_hash === fanInHash,
+    )
+    .map(([ref, record]) => ({
+      ref,
+      sequence: preCandidateConfirmationSequence(record),
+      record,
+    }))
+    .filter((entry) => entry.sequence > 0)
+    .sort((left, right) => left.sequence - right.sequence || left.ref.localeCompare(right.ref));
 }
 
 function selectedPreCandidateRefsFromDecision(
@@ -493,6 +502,7 @@ function preCandidateInterestDecisionIssues(
     decision.run_id !== runId ||
     decision.pre_candidate_source_fan_in_ref !== fanIn.path ||
     decision.pre_candidate_source_fan_in_hash !== fanInHash ||
+    preCandidateConfirmationSequence(decision) < 1 ||
     decision.confirmation_basis !== "caller_attested_user_confirmation" ||
     decision.harness_identity_verification !== "not_available"
   ) {
@@ -529,6 +539,17 @@ function preCandidateInterestDecisionIssues(
       });
     }
   }
+  const invalidFollowupRows = dispositionRows.filter(
+    (row) =>
+      row.followup_interest_disposition !== "interested_for_additional_discovery" &&
+      row.followup_interest_disposition !== "not_requested_for_additional_discovery",
+  );
+  if (invalidFollowupRows.length > 0) {
+    issues.push({
+      code: "pre_candidate_interest.followup_interest_disposition_invalid",
+      invalidRefs: invalidFollowupRows.map((row) => String(row.pre_candidate_ref)).sort(),
+    });
+  }
   const selectedRefs = selectedPreCandidateRefsFromDecision(decision);
   if (decision.pre_candidate_next_action === "proceed_with_selected" && selectedRefs.length === 0) {
     issues.push({ code: "pre_candidate_interest.selected_required_for_proceed" });
@@ -553,6 +574,39 @@ function preCandidateInterestDecisionIssues(
     });
   }
   return issues;
+}
+
+function validateDiscoveryFanInLineage(
+  entry: DeclarativeRuntimeDocument,
+  byPath: ReadonlyMap<string, DeclarativeRuntimeDocument>,
+  errors: ValidationIssue[],
+): void {
+  const revision = Number(entry.document.revision);
+  const parent = target(byPath, entry.document.parent_fan_in_ref);
+  if (
+    !Number.isInteger(revision) ||
+    revision < 1 ||
+    (revision === 1 &&
+      (entry.document.parent_fan_in_ref !== null || entry.document.parent_content_hash !== null)) ||
+    (revision > 1 &&
+      (parent?.schemaVersion !== "startup_opportunity.discovery_fan_in.v2" ||
+        parent.document.run_id !== entry.document.run_id ||
+        Number(parent.document.revision) !== revision - 1 ||
+        entry.document.parent_content_hash !== canonicalContentHash(parent.document)))
+  ) {
+    errors.push(
+      issue(
+        "runtime.discovery_fan_in_revision_mismatch",
+        entry.path,
+        "Discovery fan-in revision must preserve immutable parent path and hash lineage",
+        {
+          revision,
+          parentFanInRef: entry.document.parent_fan_in_ref ?? null,
+          parentContentHash: entry.document.parent_content_hash ?? null,
+        },
+      ),
+    );
+  }
 }
 
 function planUnits(plan: Record<string, unknown>): readonly {
@@ -2494,6 +2548,19 @@ function validateDiscoverySynthesisReadinessBoundary(
     DISCOVERY_SYNTHESIS_SCHEMA_VERSIONS.has(entry.schemaVersion),
   );
   if (synthesis.length === 0) return;
+  const manifest = documents.find(
+    (entry) => entry.schemaVersion === "startup_opportunity.run_manifest.v1",
+  );
+  if (manifest === undefined) {
+    errors.push(
+      issue(
+        "runtime.discovery_synthesis_manifest_missing",
+        synthesis[0]?.path ?? "/",
+        "G2.3 validation requires Manifest current Plan, fan-in, and pre-candidate confirmation authority",
+      ),
+    );
+    return;
+  }
 
   const planRefs = [
     ...new Set(
@@ -2522,6 +2589,25 @@ function validateDiscoverySynthesisReadinessBoundary(
   }
   const planRef = planRefs[0] as string;
   const fanInRef = fanInRefs[0] as string;
+  if (
+    manifest.document.current_plan_ref !== planRef ||
+    manifest.document.current_discovery_fan_in_ref !== fanInRef
+  ) {
+    errors.push(
+      issue(
+        "runtime.discovery_synthesis_current_authority_mismatch",
+        synthesis[0]?.path ?? "/",
+        "G2.3 artifacts must bind the Manifest current Plan and discovery fan-in",
+        {
+          planRef,
+          fanInRef,
+          currentPlanRef: manifest.document.current_plan_ref ?? null,
+          currentFanInRef: manifest.document.current_discovery_fan_in_ref ?? null,
+        },
+      ),
+    );
+    return;
+  }
   const latestReadiness = latestDocument(
     documents.filter(
       (entry) =>
@@ -2548,6 +2634,12 @@ function validateDiscoverySynthesisReadinessBoundary(
   const readinessGap = latestDocument(readinessGaps);
   const execution = target(byPath, latestReadiness.document.execution_plan_ref);
   const fanIn = target(byPath, fanInRef);
+  const fanInHash =
+    typeof fanIn?.envelope?.content_hash === "string"
+      ? fanIn.envelope.content_hash
+      : fanIn === null
+        ? null
+        : canonicalContentHash(fanIn.document);
   const nextStage =
     execution?.schemaVersion === "startup_opportunity.research_execution_plan.discovery.current"
       ? stageById(execution.document, latestReadiness.document.next_stage_id)
@@ -2560,6 +2652,7 @@ function validateDiscoverySynthesisReadinessBoundary(
     latestReadiness.document.source_fan_in_ref !== fanInRef ||
     execution?.document.research_plan_ref !== planRef ||
     fanIn?.schemaVersion !== "startup_opportunity.discovery_fan_in.v2" ||
+    manifest.document.current_discovery_fan_in_hash !== fanInHash ||
     fanIn.document.research_plan_ref !== planRef ||
     nextStage?.stage_kind !== "discovery_synthesis"
   ) {
@@ -2572,6 +2665,8 @@ function validateDiscoverySynthesisReadinessBoundary(
           readinessGapRef: readinessGap?.path ?? null,
           executionPlanRef: latestReadiness.document.execution_plan_ref,
           fanInRef,
+          currentFanInHash: manifest.document.current_discovery_fan_in_hash ?? null,
+          fanInHash,
         },
       ),
     );
@@ -2618,42 +2713,89 @@ function validateDiscoverySynthesisReadinessBoundary(
       ),
     );
   }
-  const interestDecision = latestPreCandidateInterestDecision(exactJsonlRecords, fanInRef);
-  if (interestDecision === null) {
+  const interestDecisionRef = manifest.document.current_pre_candidate_confirmation_ref;
+  const interestDecisionHash = manifest.document.current_pre_candidate_confirmation_hash;
+  const interestDecisionAction = manifest.document.current_pre_candidate_confirmation_action;
+  const interestDecision =
+    typeof interestDecisionRef === "string"
+      ? exactJsonlRecords.get(interestDecisionRef)
+      : undefined;
+  if (
+    typeof interestDecisionRef !== "string" ||
+    typeof interestDecisionHash !== "string" ||
+    interestDecision === undefined
+  ) {
     errors.push(
       issue(
         "runtime.discovery_synthesis_pre_candidate_confirmation_required",
         latestReadiness.path,
-        "G2.3 requires caller-attested user confirmation of the retained pre-candidates before formalization",
-        { fanInRef },
+        "G2.3 requires Manifest-current caller-attested user confirmation of the retained pre-candidates before formalization",
+        { fanInRef, currentPreCandidateConfirmationRef: interestDecisionRef ?? null },
       ),
     );
     return;
   }
-  const interestIssues = preCandidateInterestDecisionIssues(
-    fanIn,
-    byPath,
-    interestDecision.document,
+  const currentInterestHash = canonicalContentHash(interestDecision);
+  const sameFanInConfirmations = preCandidateConfirmationEntriesForFanIn(
+    exactJsonlRecords,
+    manifest.document.run_id,
+    fanInRef,
+    fanInHash,
   );
+  const sequenceGroups = new Map<number, string[]>();
+  for (const entry of sameFanInConfirmations) {
+    sequenceGroups.set(entry.sequence, [...(sequenceGroups.get(entry.sequence) ?? []), entry.ref]);
+  }
+  const duplicateSequences = [...sequenceGroups.entries()]
+    .filter(([, refs]) => refs.length > 1)
+    .map(([sequence, refs]) => ({ sequence, refs: refs.sort() }));
+  const latestConfirmation = sameFanInConfirmations.at(-1);
+  if (
+    duplicateSequences.length > 0 ||
+    (latestConfirmation !== undefined && latestConfirmation.ref !== interestDecisionRef)
+  ) {
+    errors.push(
+      issue(
+        "runtime.discovery_synthesis_pre_candidate_confirmation_stale",
+        interestDecisionRef,
+        "Manifest-current pre-candidate confirmation must be the latest same-fan-in append sequence available in exact records",
+        {
+          fanInRef,
+          currentPreCandidateConfirmationRef: interestDecisionRef,
+          latestPreCandidateConfirmationRef: latestConfirmation?.ref ?? null,
+          duplicateSequences,
+        },
+      ),
+    );
+    return;
+  }
+  const interestIssues = preCandidateInterestDecisionIssues(fanIn, byPath, interestDecision);
   if (
     interestIssues.length > 0 ||
-    interestDecision.document.pre_candidate_next_action !== "proceed_with_selected"
+    currentInterestHash !== interestDecisionHash ||
+    interestDecision.pre_candidate_next_action !== interestDecisionAction ||
+    interestDecision.pre_candidate_source_fan_in_ref !== fanInRef ||
+    interestDecision.pre_candidate_source_fan_in_hash !== fanInHash ||
+    interestDecisionAction !== "proceed_with_selected"
   ) {
     errors.push(
       issue(
         "runtime.discovery_synthesis_pre_candidate_confirmation_invalid",
-        interestDecision.ref,
-        "G2.3 requires the latest pre-candidate user decision for this fan-in to proceed with selected retained pre-candidates",
+        interestDecisionRef,
+        "G2.3 requires the Manifest-current pre-candidate user decision for this fan-in to proceed with selected retained pre-candidates",
         {
           fanInRef,
-          nextAction: interestDecision.document.pre_candidate_next_action ?? null,
+          nextAction: interestDecision.pre_candidate_next_action ?? null,
+          manifestNextAction: interestDecisionAction ?? null,
+          currentInterestHash,
+          manifestInterestHash: interestDecisionHash,
           issues: interestIssues,
         },
       ),
     );
     return;
   }
-  const selectedByUser = selectedPreCandidateRefsFromDecision(interestDecision.document);
+  const selectedByUser = selectedPreCandidateRefsFromDecision(interestDecision);
   if (!sourcePreCandidateRefs.every((ref) => selectedByUser.includes(ref))) {
     errors.push(
       issue(
@@ -2893,6 +3035,11 @@ export function validateDeclarativeRuntimeContract(
         validateLaneDeliveryReceipt(entry, documents, errors);
         break;
     }
+  }
+  for (const entry of documents.filter(
+    (document) => document.schemaVersion === "startup_opportunity.discovery_fan_in.v2",
+  )) {
+    validateDiscoveryFanInLineage(entry, byPath, errors);
   }
   validateDiscoverySynthesisReadinessBoundary(documents, byPath, exactJsonlRecords, errors);
   const lifecycles = documents.filter(
