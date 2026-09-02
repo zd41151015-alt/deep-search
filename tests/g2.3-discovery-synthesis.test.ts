@@ -263,6 +263,8 @@ async function publishedBundleFromState(state: State): Promise<DocumentBundle> {
 }
 
 const PRE_CANDIDATE_STOP_GAP_REF = "adaptations/gap-snapshots/pre-candidate-stop-closeout.r1.json";
+const PRE_CANDIDATE_STOP_EXTRA_GAP_REF =
+  "adaptations/gap-snapshots/pre-candidate-stop-followup.r1.json";
 const PRE_CANDIDATE_CANCEL_DECISION_REF =
   "adaptations/decisions/pre-candidate-cancel-research.json";
 const PRE_CANDIDATE_STOP_SNAPSHOT_REF = "artifacts/reporting/decision-subject-snapshot.r1.json";
@@ -317,6 +319,61 @@ function preCandidateStopGapEnvelope(
   return revisionEnvelope(
     state.runId,
     PRE_CANDIDATE_STOP_GAP_REF,
+    gap,
+    [G21_PLAN_REF, G22_FAN_IN],
+    createdAt,
+  );
+}
+
+function preCandidateStopExtraGapEnvelope(
+  state: State,
+  createdAt = "2026-07-27T20:01:30Z",
+): FormalArtifactEnvelope {
+  const gap = {
+    schema_version: "startup_opportunity.gap_snapshot.discovery.plan.current",
+    snapshot_id: "pre_candidate_stop_followup",
+    snapshot_cycle_key: canonicalContentHash({
+      run_id: state.runId,
+      action: "pre_candidate_stop_followup",
+      fan_in_ref: G22_FAN_IN,
+    }),
+    run_id: state.runId,
+    based_on_plan_ref: G21_PLAN_REF,
+    revision: 1,
+    parent_snapshot_ref: null,
+    created_at: createdAt,
+    trigger_kind: "wave_completed",
+    trigger_event_ref: null,
+    phase: "discovery",
+    wave_id: "wave_discovery_synthetic",
+    observed_artifact_refs: [G22_FAN_IN],
+    solution_exploration_observations: [],
+    gaps: [
+      {
+        gap_id: "gap_pre_candidate_stop_followup",
+        subject_ref: G22_FAN_IN,
+        gap_type: "source_repetition",
+        detection_mode: "agent_semantic",
+        triggered_by: {
+          declaration_id: "pre_candidate_stop_followup_gap",
+          declared_by: "main_agent",
+          observed_artifact_refs: [G22_FAN_IN],
+          detail: "SYNTHETIC unrelated follow-up gap bundled with the exact stop closeout.",
+        },
+        decision_impact: ["next_action"],
+        severity: "advisory",
+        basis_refs: ["manifest.json", G21_PLAN_REF, G22_FAN_IN],
+        evidence_refs: [],
+        recommended_unit_types: [],
+      },
+    ],
+    material_new_evidence_observed: false,
+    unresolved_decision_relevant_questions: [],
+    stop_signals: ["source_repetition"],
+  };
+  return revisionEnvelope(
+    state.runId,
+    PRE_CANDIDATE_STOP_EXTRA_GAP_REF,
     gap,
     [G21_PLAN_REF, G22_FAN_IN],
     createdAt,
@@ -1585,6 +1642,22 @@ test("pre-candidate confirmation uses append order across all three actions and 
     staleManifest.current_pre_candidate_confirmation_action = "stop_current_run";
     staleManifest.updated_at = "2026-07-27T20:00:30Z";
     await writeFile(manifestPath, `${canonicalJson(staleManifest)}\n`);
+    const staleManifestBytes = await readFile(manifestPath, "utf8");
+    await assert.rejects(
+      state.store.confirmPreCandidates({
+        runId: state.runId,
+        expectedFanInRef: G22_FAN_IN,
+        expectedFanInHash: fanIn.content_hash,
+        selectedPreCandidateRefs: [G23_OPPORTUNITY_A],
+        nextAction: "proceed_with_selected",
+        userConfirmationAttestation:
+          "SYNTHETIC caller attests to an invalid selected pre-candidate while recovery still needs the stale current authority.",
+      }),
+      (error: unknown) =>
+        error instanceof StoreError &&
+        error.code === "pre_candidate_interest.selection_not_in_fan_in",
+    );
+    assert.equal(await readFile(manifestPath, "utf8"), staleManifestBytes);
     await assert.rejects(
       state.store.publishArtifactBundle({
         runId: state.runId,
@@ -1728,6 +1801,7 @@ test("stop_current_run blocks new research while exact cancel closeout and repla
   assert.equal(replay.status, "idempotent_replay");
 
   const gap = preCandidateStopGapEnvelope(state);
+  const extraGap = preCandidateStopExtraGapEnvelope(state);
   const cancelDecision = preCandidateCancelDecisionEnvelope(state, stop.decisionRef);
   const snapshot = emptyDecisionSubjectSnapshotEnvelope(state);
   const exactCloseoutBundle = [gap, cancelDecision, snapshot];
@@ -1751,22 +1825,17 @@ test("stop_current_run blocks new research while exact cancel closeout and repla
     (error: unknown) =>
       error instanceof StoreError && error.code === "run.pre_candidate_stop_barrier",
   );
-  const unrelatedGap = clone(gap);
-  const unrelatedGapDocument = unrelatedGap.document as Record<string, unknown>;
-  const unrelatedGapList = unrelatedGapDocument.gaps as Record<string, unknown>[];
-  assert.ok(unrelatedGapList.length > 0);
-  const unrelatedGapEntry = unrelatedGapList[0];
-  assert.ok(unrelatedGapEntry);
-  unrelatedGapEntry.gap_type = "method_boundary";
+  const beforeInvalidStopBarrier = await treeSnapshot(state.runRoot);
   await assert.rejects(
     state.store.publishArtifactBundle({
       runId: state.runId,
-      envelopes: [unrelatedGap, cancelDecision, snapshot],
+      envelopes: [gap, extraGap, cancelDecision, snapshot],
     }),
     (error: unknown) =>
       error instanceof StoreError && error.code === "run.pre_candidate_stop_barrier",
   );
-  for (const envelope of [gap, cancelDecision, snapshot]) {
+  assert.deepEqual(await treeSnapshot(state.runRoot), beforeInvalidStopBarrier);
+  for (const envelope of [gap, extraGap, cancelDecision, snapshot]) {
     const validation = state.validator.validateDocument(envelope, envelope.artifact_path);
     assert.equal(
       validation.valid,

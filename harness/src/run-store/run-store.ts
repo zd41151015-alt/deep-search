@@ -2149,9 +2149,7 @@ export class RunStore {
         runRoot,
         manifest,
       );
-      if (canonicalJson(reboundManifest) !== canonicalJson(manifest)) {
-        await this.writeManifest(runRoot, reboundManifest);
-      }
+      const repairedManifest = canonicalJson(reboundManifest) !== canonicalJson(manifest);
       for (const ref of [...selectedPreCandidateRefs, ...followUpInterestPreCandidateRefs]) {
         validateArtifactRef(ref);
       }
@@ -2244,6 +2242,9 @@ export class RunStore {
             { decisionRef },
           );
         }
+        if (repairedManifest) {
+          await this.writeManifest(runRoot, reboundManifest);
+        }
         const existingHash = canonicalContentHash(exactExisting);
         return {
           schemaVersion: "startup_opportunity.confirm_pre_candidates_result.v1",
@@ -2304,13 +2305,13 @@ export class RunStore {
         decision,
       );
       const nextManifest: RunManifest = {
-        ...manifest,
+        ...reboundManifest,
         status:
           input.nextAction === "stop_current_run"
             ? "stopping"
-            : manifest.status === "stopping"
+            : reboundManifest.status === "stopping"
               ? "researching"
-              : manifest.status,
+              : reboundManifest.status,
         current_pre_candidate_confirmation_ref: decisionRef,
         current_pre_candidate_confirmation_hash: canonicalContentHash(decision),
         current_pre_candidate_confirmation_action: input.nextAction,
@@ -7187,8 +7188,8 @@ export class RunStore {
         { status: manifest.status, currentConfirmationRef: authority.ref },
       );
     }
-    const stopGap =
-      gapEnvelope === undefined ? null : (records(gapEnvelope.document.gaps)[0] ?? null);
+    const stopGaps = gapEnvelope === undefined ? [] : records(gapEnvelope.document.gaps);
+    const stopGap = stopGaps.length === 1 ? (stopGaps[0] ?? null) : null;
     const triggeredBy =
       stopGap !== null && isRecord(stopGap.triggered_by) ? stopGap.triggered_by : null;
     const exactStopCloseout =
@@ -7202,6 +7203,7 @@ export class RunStore {
       gapEnvelope.document.trigger_kind === "wave_completed" &&
       gapEnvelope.document.phase === "discovery" &&
       gapEnvelope.document.material_new_evidence_observed === false &&
+      stopGaps.length === 1 &&
       sameStringSet(strings(gapEnvelope.document.observed_artifact_refs), [currentFanInRef]) &&
       sameStringSet(strings(gapEnvelope.document.stop_signals), ["user_stop"]) &&
       isRecord(stopGap) &&
