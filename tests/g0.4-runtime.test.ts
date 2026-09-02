@@ -2814,6 +2814,16 @@ async function publishDiscoverySynthesisReadiness(
     runId: state.runId,
     envelope: runtimeEnvelope(state.bundle, G22_FAN_IN),
   });
+  await state.store.confirmPreCandidates({
+    runId: state.runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: runtimeEnvelope(state.bundle, G22_FAN_IN).content_hash,
+    selectedPreCandidateRefs: [G22_RETAINED_PRE_CANDIDATE],
+    nextAction: "proceed_with_selected",
+    userConfirmationAttestation:
+      "SYNTHETIC caller attests that the user selected the retained pre-candidate for continuation.",
+    confirmedAt: "2026-07-27T19:59:00Z",
+  });
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: discoverySynthesisReadinessEnvelopes(state.bundle),

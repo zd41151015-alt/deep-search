@@ -1472,12 +1472,21 @@ async function validateReceiptSources(
           decision.user_decision_ref,
           "decisions.jsonl",
         );
+        const legacyCancellationAuthority =
+          userDecision.schema_version === "startup_opportunity.decision.v1" &&
+          userDecision.decision_type === "run_cancelled" &&
+          userDecision.actor === "user";
+        const preCandidateStopAuthority =
+          userDecision.schema_version === "startup_opportunity.decision.v1" &&
+          userDecision.decision_type === "pre_candidate_interest_confirmed" &&
+          userDecision.actor === "main_agent" &&
+          userDecision.pre_candidate_next_action === "stop_current_run" &&
+          userDecision.confirmation_basis === "caller_attested_user_confirmation" &&
+          userDecision.harness_identity_verification === "not_available";
         if (
           decision.action === "cancel_research" &&
-          (userDecision.schema_version !== "startup_opportunity.decision.v1" ||
-            userDecision.decision_type !== "run_cancelled" ||
-            userDecision.actor !== "user" ||
-            userDecision.run_id !== receipt.run_id)
+          (userDecision.run_id !== receipt.run_id ||
+            (!legacyCancellationAuthority && !preCandidateStopAuthority))
         ) {
           throw new Error("cancellation authority mismatch");
         }

@@ -925,7 +925,7 @@
     {
       "schemaFile": "current/discovery/candidates/definitions.schema.json",
       "structuralOwner": "discovery_research",
-      "impactFamilies": ["declarative_runtime", "discovery_research"]
+      "impactFamilies": ["declarative_runtime", "discovery_research", "run_control_planning"]
     },
     {
       "schemaFile": "current/discovery/evaluation/definitions.schema.json",

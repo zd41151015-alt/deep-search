@@ -56,6 +56,8 @@ export const G23_MERGE = "artifacts/discovery/merges/merge_household.r1.json";
 export const G23_EXECUTION = "plans/research-execution.r2.json";
 export const G23_READINESS = "artifacts/discovery/readiness/discovery-synthesis.r1.json";
 export const G23_READINESS_GAP = "adaptations/gap-snapshots/discovery_synthesis_readiness.r1.json";
+export const G23_PRE_CANDIDATE_INTEREST_DECISION_REF =
+  "decisions.jsonl#pre_candidate_interest_fixture";
 
 const SYNTHETIC = "SYNTHETIC G2.3 fixture only; no real Evidence or validation.";
 
@@ -263,6 +265,7 @@ export async function createDiscoverySynthesisFixture(
     "startup_opportunity.document_bundle.current";
   const mutable = bundle as unknown as {
     documents: { path: string; document: Record<string, unknown> }[];
+    exact_records: { ref: string; document: Record<string, unknown> }[];
   };
   const fanIn = fixtureEffective(bundle, G22_FAN_IN);
   for (const disposition of fanIn.candidate_dispositions as Record<string, unknown>[]) {
@@ -286,6 +289,31 @@ export async function createDiscoverySynthesisFixture(
   fanInEnvelope.content_hash = canonicalContentHash(fanIn);
   const retainedPreCandidate = fixtureEffective(bundle, G22_RETAINED_PRE_CANDIDATE);
   const retainedPreCandidateHash = canonicalContentHash(retainedPreCandidate);
+  const materializedPreCandidateRefs = fanIn.materialized_pre_candidate_refs as string[];
+  const preCandidateInterestDecision = {
+    schema_version: "startup_opportunity.decision.v1",
+    decision_id: "pre_candidate_interest_fixture",
+    run_id: runId,
+    decision_type: "pre_candidate_interest_confirmed",
+    timestamp: "2026-07-27T19:59:00Z",
+    actor: "main_agent",
+    reason:
+      "SYNTHETIC caller attests that the user selected the retained pre-candidate for continuation.",
+    artifact_refs: [G22_FAN_IN, ...materializedPreCandidateRefs].sort(),
+    pre_candidate_source_fan_in_ref: G22_FAN_IN,
+    pre_candidate_source_fan_in_hash: fanInEnvelope.content_hash,
+    pre_candidate_next_action: "proceed_with_selected",
+    pre_candidate_interest_dispositions: materializedPreCandidateRefs.map((ref) => ({
+      pre_candidate_ref: ref,
+      pre_candidate_content_hash: canonicalContentHash(fixtureEffective(bundle, ref)),
+      interest_disposition:
+        ref === G22_RETAINED_PRE_CANDIDATE
+          ? "selected_for_continuation"
+          : "not_selected_current_run",
+    })),
+    confirmation_basis: "caller_attested_user_confirmation",
+    harness_identity_verification: "not_available",
+  };
   const sourceSolutionSubject = fixtureEffective(bundle, G22_SOLUTION_R1).subject as Record<
     string,
     unknown
@@ -1178,6 +1206,10 @@ export async function createDiscoverySynthesisFixture(
       document: document as unknown as Record<string, unknown>,
     })),
   );
+  mutable.exact_records.push({
+    ref: G23_PRE_CANDIDATE_INTEREST_DECISION_REF,
+    document: preCandidateInterestDecision,
+  });
   const manifest = fixtureEffective(bundle, "manifest.json");
   manifest.latest_gap_snapshot_ref = G23_READINESS_GAP;
   manifest.artifact_refs = [

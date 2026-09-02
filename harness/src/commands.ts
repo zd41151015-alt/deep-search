@@ -12,6 +12,7 @@ Usage:
   npm run harness -- create-run --run-id ID --mode MODE --geography GEO --customer-model MODEL --target-user USER --decision-goal GOAL --research-language LANG [--created-at TIME]
   npm run harness -- propose-scope --run-id ID --expected-scope-revision N --geography GEO --customer-model MODEL --target-user USER --decision-goal GOAL --research-language LANG --reason REASON
   npm run harness -- confirm-scope --run-id ID --expected-scope-proposal-revision N --expected-scope-proposal-ref REF --expected-scope-proposal-hash HASH --user-confirmation-attestation TEXT
+  npm run harness -- confirm-pre-candidates --run-id ID --expected-fan-in-ref REF --expected-fan-in-hash HASH --next-action ACTION --user-confirmation-attestation TEXT [--selected-pre-candidate-ref REF]
   npm run harness -- load-run --run-id ID [--observe]
   npm run harness -- status-run --run-id ID
   npm run harness -- admit-prior-input --run-id ID --prior-input-id ID --source-run-id ID --source-artifact-path PATH --target-artifact-path PATH --consumer CONSUMER --reason REASON
@@ -46,6 +47,7 @@ Commands:
   create-run         Persist a confined Run and exact Scope proposal awaiting confirmation; exact technical restart provenance may declare a new current-only attempt after record_runtime_failure.
   propose-scope      Append a corrected Scope proposal without claiming user confirmation.
   confirm-scope      Bind caller-attested confirmation to the exact proposal revision/ref/hash.
+  confirm-pre-candidates Bind caller-attested user interest in current G2.2 pre-candidates before G2.3 or same-scope follow-up/stop.
   load-run           Validate, reconcile, and reopen a persisted Run.
   status-run         Read and validate current Run manifest state without recovery or mutation.
   admit-prior-input  Hash one explicitly named prior-Run artifact and append its hypothesis-only admission receipt.
@@ -115,6 +117,11 @@ Appends a corrected Scope proposal without claiming user confirmation.
   npm run harness -- confirm-scope --run-id ID --expected-scope-proposal-revision N --expected-scope-proposal-ref REF --expected-scope-proposal-hash HASH --user-confirmation-attestation TEXT [--confirmed-at TIME] [--runs-root DIR]
 
 Binds caller-attested user confirmation to the exact Scope proposal revision/ref/hash.
+`,
+  "confirm-pre-candidates": `Usage:
+  npm run harness -- confirm-pre-candidates --run-id ID --expected-fan-in-ref REF --expected-fan-in-hash HASH --next-action ACTION --user-confirmation-attestation TEXT [--selected-pre-candidate-ref REF] [--confirmed-at TIME] [--runs-root DIR]
+
+Binds caller-attested user interest to the exact current G2.2 fan-in. ACTION is one of proceed_with_selected, run_additional_discovery_same_scope, or stop_current_run. Repeat --selected-pre-candidate-ref only with proceed_with_selected.
 `,
   "load-run": `Usage:
   npm run harness -- load-run --run-id ID [--runs-root DIR] [--observe]

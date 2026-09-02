@@ -878,6 +878,20 @@ async function publishG33Prerequisites(
       (candidate) => candidate.artifact_path === G22_FAN_IN,
     ) as FormalArtifactEnvelope,
   });
+  await state.store.confirmPreCandidates({
+    runId: state.runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: (
+      discovery.find(
+        (candidate) => candidate.artifact_path === G22_FAN_IN,
+      ) as FormalArtifactEnvelope
+    ).content_hash,
+    selectedPreCandidateRefs: [G22_RETAINED_PRE_CANDIDATE],
+    nextAction: "proceed_with_selected",
+    userConfirmationAttestation:
+      "SYNTHETIC caller attests that the user selected the retained pre-candidate for continuation.",
+    confirmedAt: "2026-07-27T19:59:00Z",
+  });
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: discoverySynthesisReadinessEnvelopes(state.bundle),

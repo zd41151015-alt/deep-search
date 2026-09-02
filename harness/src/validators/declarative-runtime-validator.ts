@@ -440,6 +440,121 @@ function target(
   return typeof ref === "string" ? (byPath.get(ref.split("#", 1)[0] ?? "") ?? null) : null;
 }
 
+function latestPreCandidateInterestDecision(
+  exactJsonlRecords: ReadonlyMap<string, Record<string, unknown>>,
+  fanInRef: string,
+): { readonly ref: string; readonly document: Record<string, unknown> } | null {
+  return (
+    [...exactJsonlRecords.entries()]
+      .filter(
+        ([, document]) =>
+          document.schema_version === "startup_opportunity.decision.v1" &&
+          document.decision_type === "pre_candidate_interest_confirmed" &&
+          document.pre_candidate_source_fan_in_ref === fanInRef,
+      )
+      .map(([ref, document]) => ({ ref, document }))
+      .sort((left, right) => {
+        const timeDifference =
+          Date.parse(String(right.document.timestamp ?? "")) -
+          Date.parse(String(left.document.timestamp ?? ""));
+        if (Number.isFinite(timeDifference) && timeDifference !== 0) return timeDifference;
+        return String(right.document.decision_id ?? "").localeCompare(
+          String(left.document.decision_id ?? ""),
+        );
+      })[0] ?? null
+  );
+}
+
+function selectedPreCandidateRefsFromDecision(
+  decision: Record<string, unknown>,
+): readonly string[] {
+  return records(decision.pre_candidate_interest_dispositions)
+    .filter((row) => row.interest_disposition === "selected_for_continuation")
+    .map((row) => String(row.pre_candidate_ref))
+    .sort();
+}
+
+function preCandidateInterestDecisionIssues(
+  fanIn: DeclarativeRuntimeDocument,
+  byPath: ReadonlyMap<string, DeclarativeRuntimeDocument>,
+  decision: Record<string, unknown>,
+): readonly Record<string, unknown>[] {
+  const issues: Record<string, unknown>[] = [];
+  const runId = fanIn.document.run_id;
+  const fanInHash = fanIn.envelope?.content_hash ?? canonicalContentHash(fanIn.document);
+  const materializedRefs = strings(fanIn.document.materialized_pre_candidate_refs);
+  const retainedRefs = strings(fanIn.document.retained_pre_candidate_refs);
+  const dispositionRows = records(decision.pre_candidate_interest_dispositions);
+  const dispositionRefs = dispositionRows.map((row) => String(row.pre_candidate_ref));
+  if (
+    decision.schema_version !== "startup_opportunity.decision.v1" ||
+    decision.decision_type !== "pre_candidate_interest_confirmed" ||
+    decision.actor !== "main_agent" ||
+    decision.run_id !== runId ||
+    decision.pre_candidate_source_fan_in_ref !== fanIn.path ||
+    decision.pre_candidate_source_fan_in_hash !== fanInHash ||
+    decision.confirmation_basis !== "caller_attested_user_confirmation" ||
+    decision.harness_identity_verification !== "not_available"
+  ) {
+    issues.push({ code: "pre_candidate_interest.identity_mismatch" });
+  }
+  if (
+    dispositionRows.length !== dispositionRefs.length ||
+    new Set(dispositionRefs).size !== dispositionRefs.length ||
+    !sameStrings(dispositionRefs, materializedRefs)
+  ) {
+    issues.push({
+      code: "pre_candidate_interest.disposition_closure_mismatch",
+      expectedRefs: [...materializedRefs].sort(),
+      actualRefs: [...dispositionRefs].sort(),
+    });
+  }
+  for (const row of dispositionRows) {
+    const ref = String(row.pre_candidate_ref);
+    const preCandidate = target(byPath, ref);
+    const expectedHash =
+      preCandidate === null
+        ? null
+        : (preCandidate.envelope?.content_hash ?? canonicalContentHash(preCandidate.document));
+    if (
+      preCandidate?.schemaVersion !== "startup_opportunity.concrete_pre_candidate.v1" ||
+      preCandidate.document.run_id !== runId ||
+      row.pre_candidate_content_hash !== expectedHash
+    ) {
+      issues.push({
+        code: "pre_candidate_interest.pre_candidate_hash_mismatch",
+        preCandidateRef: ref,
+        expectedHash,
+        actualHash: row.pre_candidate_content_hash ?? null,
+      });
+    }
+  }
+  const selectedRefs = selectedPreCandidateRefsFromDecision(decision);
+  if (decision.pre_candidate_next_action === "proceed_with_selected" && selectedRefs.length === 0) {
+    issues.push({ code: "pre_candidate_interest.selected_required_for_proceed" });
+  }
+  if (
+    (decision.pre_candidate_next_action === "run_additional_discovery_same_scope" ||
+      decision.pre_candidate_next_action === "stop_current_run") &&
+    selectedRefs.length > 0
+  ) {
+    issues.push({
+      code: "pre_candidate_interest.selected_forbidden_for_non_proceed_action",
+      selectedRefs,
+      nextAction: decision.pre_candidate_next_action,
+    });
+  }
+  const unretainedSelectedRefs = selectedRefs.filter((ref) => !retainedRefs.includes(ref));
+  if (unretainedSelectedRefs.length > 0) {
+    issues.push({
+      code: "pre_candidate_interest.selected_pre_candidate_not_retained",
+      selectedRefs,
+      retainedRefs: [...retainedRefs].sort(),
+    });
+  }
+  return issues;
+}
+
 function planUnits(plan: Record<string, unknown>): readonly {
   readonly waveId: string;
   readonly unit: Record<string, unknown>;
@@ -2372,6 +2487,7 @@ function validateReadiness(
 function validateDiscoverySynthesisReadinessBoundary(
   documents: readonly DeclarativeRuntimeDocument[],
   byPath: ReadonlyMap<string, DeclarativeRuntimeDocument>,
+  exactJsonlRecords: ReadonlyMap<string, Record<string, unknown>>,
   errors: ValidationIssue[],
 ): void {
   const synthesis = documents.filter((entry) =>
@@ -2499,6 +2615,52 @@ function validateDiscoverySynthesisReadinessBoundary(
         latestReadiness.path,
         "G2.3 artifacts may source only retained concrete pre-candidates visible in readiness",
         { sourcePreCandidateRefs, retainedPreCandidates, readinessPreCandidateRefs },
+      ),
+    );
+  }
+  const interestDecision = latestPreCandidateInterestDecision(exactJsonlRecords, fanInRef);
+  if (interestDecision === null) {
+    errors.push(
+      issue(
+        "runtime.discovery_synthesis_pre_candidate_confirmation_required",
+        latestReadiness.path,
+        "G2.3 requires caller-attested user confirmation of the retained pre-candidates before formalization",
+        { fanInRef },
+      ),
+    );
+    return;
+  }
+  const interestIssues = preCandidateInterestDecisionIssues(
+    fanIn,
+    byPath,
+    interestDecision.document,
+  );
+  if (
+    interestIssues.length > 0 ||
+    interestDecision.document.pre_candidate_next_action !== "proceed_with_selected"
+  ) {
+    errors.push(
+      issue(
+        "runtime.discovery_synthesis_pre_candidate_confirmation_invalid",
+        interestDecision.ref,
+        "G2.3 requires the latest pre-candidate user decision for this fan-in to proceed with selected retained pre-candidates",
+        {
+          fanInRef,
+          nextAction: interestDecision.document.pre_candidate_next_action ?? null,
+          issues: interestIssues,
+        },
+      ),
+    );
+    return;
+  }
+  const selectedByUser = selectedPreCandidateRefsFromDecision(interestDecision.document);
+  if (!sourcePreCandidateRefs.every((ref) => selectedByUser.includes(ref))) {
+    errors.push(
+      issue(
+        "runtime.discovery_synthesis_pre_candidate_not_user_selected",
+        latestReadiness.path,
+        "G2.3 artifacts may source only retained pre-candidates selected by the latest user confirmation",
+        { sourcePreCandidateRefs, selectedPreCandidateRefs: selectedByUser },
       ),
     );
   }
@@ -2732,7 +2894,7 @@ export function validateDeclarativeRuntimeContract(
         break;
     }
   }
-  validateDiscoverySynthesisReadinessBoundary(documents, byPath, errors);
+  validateDiscoverySynthesisReadinessBoundary(documents, byPath, exactJsonlRecords, errors);
   const lifecycles = documents.filter(
     (entry) => entry.schemaVersion === "startup_opportunity.lane_lifecycle.v1",
   );

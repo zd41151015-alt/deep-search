@@ -7,6 +7,7 @@ import { createArtifactValidator } from "../validators/artifact-validator.js";
 import {
   type BeliefSummary,
   type CheckpointRunInput,
+  type ConfirmPreCandidatesInput,
   type CreateResearchHandoffInput,
   type CreateRunInput,
   type ReadPriorInputInput,
@@ -345,6 +346,37 @@ export async function runConfirmScope(
       userConfirmationAttestation: required(parsed, "--user-confirmation-attestation"),
       ...(confirmedAt === undefined ? {} : { confirmedAt }),
     });
+  });
+}
+
+export async function runConfirmPreCandidates(
+  args: readonly string[],
+  repositoryRoot = process.cwd(),
+): Promise<number> {
+  return runCommand(async () => {
+    const parsed = parseArguments(args, ["--selected-pre-candidate-ref"]);
+    rejectUnknown(parsed, [
+      "--run-id",
+      "--expected-fan-in-ref",
+      "--expected-fan-in-hash",
+      "--selected-pre-candidate-ref",
+      "--next-action",
+      "--user-confirmation-attestation",
+      "--confirmed-at",
+      "--runs-root",
+    ]);
+    const confirmedAt = parsed.values.get("--confirmed-at");
+    const input: ConfirmPreCandidatesInput = {
+      runId: required(parsed, "--run-id"),
+      expectedFanInRef: required(parsed, "--expected-fan-in-ref"),
+      expectedFanInHash: required(parsed, "--expected-fan-in-hash"),
+      selectedPreCandidateRefs: parsed.repeated.get("--selected-pre-candidate-ref") ?? [],
+      nextAction: required(parsed, "--next-action") as ConfirmPreCandidatesInput["nextAction"],
+      userConfirmationAttestation: required(parsed, "--user-confirmation-attestation"),
+      ...(confirmedAt === undefined ? {} : { confirmedAt }),
+    };
+    const validator = await createArtifactValidator(repositoryRoot);
+    return new RunStore(roots(parsed, repositoryRoot), validator).confirmPreCandidates(input);
   });
 }
 

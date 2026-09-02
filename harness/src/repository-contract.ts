@@ -53,6 +53,7 @@ export const IMPLEMENTED_SKILL_COMMANDS = [
   "create-run",
   "propose-scope",
   "confirm-scope",
+  "confirm-pre-candidates",
   "status-run",
   "load-run",
   "admit-prior-input",

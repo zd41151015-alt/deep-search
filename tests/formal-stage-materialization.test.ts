@@ -43,6 +43,7 @@ import {
   G22_FAN_IN,
   G22_FINDING,
   G22_GENERATION_TASK,
+  G22_RETAINED_PRE_CANDIDATE,
   G22_RUN_ID,
   G22_SOLUTION_R1,
 } from "./fixtures/g2.2/discovery-candidate-fixture.js";
@@ -968,6 +969,16 @@ async function prepareRunThroughDiscoveryFanIn(context: TestContext, suffix: str
   await store.publishArtifact({
     runId,
     envelope: runtimeEnvelope(bundle, G22_FAN_IN),
+  });
+  await store.confirmPreCandidates({
+    runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: runtimeEnvelope(bundle, G22_FAN_IN).content_hash,
+    selectedPreCandidateRefs: [G22_RETAINED_PRE_CANDIDATE],
+    nextAction: "proceed_with_selected",
+    userConfirmationAttestation:
+      "SYNTHETIC caller attests that the user selected the retained pre-candidate for continuation.",
+    confirmedAt: "2026-07-27T19:59:00Z",
   });
   return { root, runsRoot, runId, validator, bundle, store };
 }
@@ -3578,6 +3589,16 @@ test("G2.3 public materializer derives exact Opportunity solution summaries and 
   await store.publishArtifact({
     runId,
     envelope: runtimeEnvelope(bundle, "artifacts/discovery/fan-in.r1.json"),
+  });
+  await store.confirmPreCandidates({
+    runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: runtimeEnvelope(bundle, G22_FAN_IN).content_hash,
+    selectedPreCandidateRefs: [G22_RETAINED_PRE_CANDIDATE],
+    nextAction: "proceed_with_selected",
+    userConfirmationAttestation:
+      "SYNTHETIC caller attests that the user selected the retained pre-candidate for continuation.",
+    confirmedAt: "2026-07-27T19:59:00Z",
   });
   await store.publishArtifactBundle({
     runId,

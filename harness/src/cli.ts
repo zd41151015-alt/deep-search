@@ -16,6 +16,7 @@ import { runAuditTraceability, runBuildReport } from "./reporting/report-command
 import {
   runAdmitPriorInput,
   runCheckpointRun,
+  runConfirmPreCandidates,
   runConfirmScope,
   runCreateResearchHandoff,
   runCreateRun,
@@ -63,6 +64,9 @@ if (subcommandHelpRequested && printCommandHelp(command)) {
       break;
     case "confirm-scope":
       process.exitCode = await runConfirmScope(args);
+      break;
+    case "confirm-pre-candidates":
+      process.exitCode = await runConfirmPreCandidates(args);
       break;
     case "load-run":
       process.exitCode = await runLoadRun(args);

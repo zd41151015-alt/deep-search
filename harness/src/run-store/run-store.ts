@@ -229,6 +229,35 @@ export interface ConfirmScopeResult {
   readonly status: "confirmed" | "idempotent_replay";
 }
 
+export type PreCandidateInterestNextAction =
+  | "proceed_with_selected"
+  | "run_additional_discovery_same_scope"
+  | "stop_current_run";
+
+export interface ConfirmPreCandidatesInput {
+  readonly runId: string;
+  readonly expectedFanInRef: string;
+  readonly expectedFanInHash: string;
+  readonly selectedPreCandidateRefs: readonly string[];
+  readonly nextAction: PreCandidateInterestNextAction;
+  readonly userConfirmationAttestation: string;
+  readonly confirmedAt?: string;
+}
+
+export interface ConfirmPreCandidatesResult {
+  readonly schemaVersion: "startup_opportunity.confirm_pre_candidates_result.v1";
+  readonly runId: string;
+  readonly sourceFanInRef: string;
+  readonly sourceFanInHash: string;
+  readonly selectedPreCandidateRefs: readonly string[];
+  readonly nextAction: PreCandidateInterestNextAction;
+  readonly decisionRef: string;
+  readonly decisionHash: string;
+  readonly confirmationBasis: "caller_attested_user_confirmation";
+  readonly harnessIdentityVerification: "not_available";
+  readonly status: "confirmed" | "idempotent_replay";
+}
+
 export interface AdmitPriorInputInput {
   readonly runId: string;
   readonly priorInputId: string;
@@ -686,6 +715,23 @@ function strings(value: unknown): readonly string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  return canonicalJson([...new Set(left)].sort()) === canonicalJson([...new Set(right)].sort());
+}
+
+function latestDecisionByTimestamp(
+  records: readonly Record<string, unknown>[],
+): Record<string, unknown> | null {
+  return (
+    [...records].sort((left, right) => {
+      const timeDifference =
+        Date.parse(String(right.timestamp ?? "")) - Date.parse(String(left.timestamp ?? ""));
+      if (Number.isFinite(timeDifference) && timeDifference !== 0) return timeDifference;
+      return String(right.decision_id ?? "").localeCompare(String(left.decision_id ?? ""));
+    })[0] ?? null
+  );
 }
 
 function researchPlanUnits(
@@ -1886,6 +1932,260 @@ export class RunStore {
         scopeConfirmationRef: decisionRef,
         scopeConfirmationHash: decisionHash,
         confirmedScope: researchScopeFromDocument(state.proposal.scope as Record<string, unknown>),
+        confirmationBasis: "caller_attested_user_confirmation",
+        harnessIdentityVerification: "not_available",
+        status: status === "appended" ? "confirmed" : "idempotent_replay",
+      };
+    });
+  }
+
+  async confirmPreCandidates(
+    input: ConfirmPreCandidatesInput,
+  ): Promise<ConfirmPreCandidatesResult> {
+    validateRunId(input.runId);
+    if (!isSha256(input.expectedFanInHash)) {
+      throw new StoreError(
+        "pre_candidate_interest.fan_in_hash_invalid",
+        "pre-candidate confirmation must bind an exact source fan-in content hash",
+        { expectedFanInHash: input.expectedFanInHash },
+      );
+    }
+    if (input.userConfirmationAttestation.trim().length === 0) {
+      throw new StoreError(
+        "pre_candidate_interest.attestation_missing",
+        "pre-candidate confirmation requires caller-attested user confirmation text",
+      );
+    }
+    if (
+      ![
+        "proceed_with_selected",
+        "run_additional_discovery_same_scope",
+        "stop_current_run",
+      ].includes(input.nextAction)
+    ) {
+      throw new StoreError(
+        "pre_candidate_interest.next_action_invalid",
+        "pre-candidate confirmation next action is not supported",
+        { nextAction: input.nextAction },
+      );
+    }
+    const selectedPreCandidateRefs = [...input.selectedPreCandidateRefs].sort();
+    if (new Set(selectedPreCandidateRefs).size !== selectedPreCandidateRefs.length) {
+      throw new StoreError(
+        "pre_candidate_interest.selection_duplicate",
+        "selected pre-candidate refs must be unique",
+        { selectedPreCandidateRefs },
+      );
+    }
+    const parsedFanIn = validateArtifactRef(input.expectedFanInRef);
+    if (
+      parsedFanIn.fragment !== null ||
+      !/^artifacts\/discovery\/fan-in\.r[1-9][0-9]*\.json$/u.test(parsedFanIn.path)
+    ) {
+      throw new StoreError(
+        "pre_candidate_interest.fan_in_ref_invalid",
+        "pre-candidate confirmation must bind one exact discovery fan-in artifact path",
+        { expectedFanInRef: input.expectedFanInRef },
+      );
+    }
+    await this.assertCurrentLeaf(input.runId);
+    const runRoot = await openRunDirectory(this.runsRoot, input.runId);
+    return withRunLock(runRoot, async () => {
+      const manifest = await this.readManifest(runRoot);
+      await this.assertScopeBindingLocked(runRoot, manifest);
+      if (
+        manifest.mode !== "opportunity_discovery" ||
+        manifest.current_plan_ref === null ||
+        manifest.scope_confirmation_ref === null
+      ) {
+        throw new StoreError(
+          "pre_candidate_interest.discovery_plan_required",
+          "pre-candidate confirmation requires an opportunity-discovery Run with confirmed Scope and current Plan",
+          {
+            mode: manifest.mode,
+            currentPlanRef: manifest.current_plan_ref,
+            scopeConfirmationRef: manifest.scope_confirmation_ref,
+          },
+        );
+      }
+      if (TERMINAL_RUN_STATUSES.has(manifest.status) || manifest.status === "reporting") {
+        throw new StoreError(
+          "pre_candidate_interest.run_terminal",
+          "terminal or reporting Runs cannot record pre-candidate continuation interest",
+          { status: manifest.status },
+        );
+      }
+      const currentByPath = await this.currentFormalEnvelopeMapLocked(runRoot, manifest);
+      const fanIn = currentByPath.get(input.expectedFanInRef);
+      if (
+        fanIn === undefined ||
+        fanIn.artifact_type !== "startup_opportunity.discovery_fan_in.v2" ||
+        fanIn.document.run_id !== input.runId ||
+        fanIn.document.research_plan_ref !== manifest.current_plan_ref
+      ) {
+        throw new StoreError(
+          "pre_candidate_interest.fan_in_not_current",
+          "pre-candidate confirmation must bind the current same-Run fan-in for the current Plan",
+          {
+            expectedFanInRef: input.expectedFanInRef,
+            currentPlanRef: manifest.current_plan_ref,
+          },
+        );
+      }
+      await this.artifacts.validateStoredEnvelope(runRoot, input.runId, fanIn);
+      if (fanIn.content_hash !== input.expectedFanInHash) {
+        throw new StoreError(
+          "pre_candidate_interest.fan_in_hash_mismatch",
+          "pre-candidate confirmation fan-in hash differs from the current stored fan-in",
+          {
+            expectedFanInHash: input.expectedFanInHash,
+            actualFanInHash: fanIn.content_hash,
+          },
+        );
+      }
+      for (const selected of selectedPreCandidateRefs) {
+        validateArtifactRef(selected);
+      }
+      const materializedPreCandidateRefs = strings(fanIn.document.materialized_pre_candidate_refs);
+      const selectedOutsideFanIn = selectedPreCandidateRefs.filter(
+        (ref) => !materializedPreCandidateRefs.includes(ref),
+      );
+      if (selectedOutsideFanIn.length > 0) {
+        throw new StoreError(
+          "pre_candidate_interest.selection_not_in_fan_in",
+          "selected pre-candidate refs must belong to the exact source fan-in",
+          { selectedOutsideFanIn, materializedPreCandidateRefs },
+        );
+      }
+      for (const ref of materializedPreCandidateRefs) {
+        const preCandidate = currentByPath.get(ref);
+        if (preCandidate !== undefined) {
+          await this.artifacts.validateStoredEnvelope(runRoot, input.runId, preCandidate);
+        }
+      }
+      const dispositions = materializedPreCandidateRefs.map((ref) => {
+        const preCandidate = currentByPath.get(ref);
+        return {
+          pre_candidate_ref: ref,
+          pre_candidate_content_hash: preCandidate?.content_hash ?? `sha256:${"0".repeat(64)}`,
+          interest_disposition: selectedPreCandidateRefs.includes(ref)
+            ? "selected_for_continuation"
+            : "not_selected_current_run",
+        };
+      });
+      const decisionIdentity = {
+        run_id: input.runId,
+        pre_candidate_source_fan_in_ref: input.expectedFanInRef,
+        pre_candidate_source_fan_in_hash: input.expectedFanInHash,
+        pre_candidate_next_action: input.nextAction,
+        pre_candidate_interest_dispositions: dispositions,
+      };
+      const decisionId = `pre_candidate_interest_${sha256Hex(
+        operationKey("pre_candidate_interest_decision", decisionIdentity),
+      ).slice(0, 24)}`;
+      const decisionRef = `decisions.jsonl#${decisionId}`;
+      const existing = (
+        await this.logs.listValidatedRecords(runRoot, input.runId, "decisions.jsonl")
+      ).find((record) => record.decision_id === decisionId);
+      if (existing !== undefined) {
+        const exactExisting = await this.logs.readExactRecord(
+          runRoot,
+          input.runId,
+          decisionRef,
+          "decisions.jsonl",
+        );
+        const existingIssues = this.preCandidateInterestDecisionIssues(
+          manifest,
+          fanIn,
+          currentByPath,
+          exactExisting,
+        );
+        if (
+          existingIssues.length > 0 ||
+          exactExisting.pre_candidate_next_action !== input.nextAction
+        ) {
+          throw new StoreError(
+            "pre_candidate_interest.confirmation_invalid",
+            "existing pre-candidate confirmation no longer closes the current fan-in and selected retained set",
+            { decisionRef, issues: existingIssues },
+          );
+        }
+        if (
+          exactExisting.reason !== input.userConfirmationAttestation ||
+          (input.confirmedAt !== undefined && exactExisting.timestamp !== input.confirmedAt)
+        ) {
+          throw new StoreError(
+            "pre_candidate_interest.confirmation_conflict",
+            "pre-candidate confirmation identity is already bound to different user attestation metadata",
+            { decisionRef },
+          );
+        }
+        return {
+          schemaVersion: "startup_opportunity.confirm_pre_candidates_result.v1",
+          runId: input.runId,
+          sourceFanInRef: input.expectedFanInRef,
+          sourceFanInHash: input.expectedFanInHash,
+          selectedPreCandidateRefs,
+          nextAction: input.nextAction,
+          decisionRef,
+          decisionHash: canonicalContentHash(exactExisting),
+          confirmationBasis: "caller_attested_user_confirmation",
+          harnessIdentityVerification: "not_available",
+          status: "idempotent_replay",
+        };
+      }
+      const decision = {
+        schema_version: "startup_opportunity.decision.v1",
+        decision_id: decisionId,
+        run_id: input.runId,
+        decision_type: "pre_candidate_interest_confirmed",
+        timestamp: input.confirmedAt ?? new Date().toISOString(),
+        actor: "main_agent",
+        reason: input.userConfirmationAttestation,
+        artifact_refs: [
+          ...new Set([input.expectedFanInRef, ...materializedPreCandidateRefs]),
+        ].sort(),
+        pre_candidate_source_fan_in_ref: input.expectedFanInRef,
+        pre_candidate_source_fan_in_hash: input.expectedFanInHash,
+        pre_candidate_next_action: input.nextAction,
+        pre_candidate_interest_dispositions: dispositions,
+        confirmation_basis: "caller_attested_user_confirmation",
+        harness_identity_verification: "not_available",
+      };
+      const issues = this.preCandidateInterestDecisionIssues(
+        manifest,
+        fanIn,
+        currentByPath,
+        decision,
+      );
+      if (issues.length > 0) {
+        throw new StoreError(
+          "pre_candidate_interest.confirmation_invalid",
+          "pre-candidate confirmation does not close the current fan-in and selected retained set",
+          { issues },
+        );
+      }
+      await this.assertRecordRefsExist(runRoot, decision);
+      const status = await this.logs.appendValidated(
+        runRoot,
+        input.runId,
+        "decisions.jsonl",
+        decision,
+      );
+      const nextManifest: RunManifest = {
+        ...manifest,
+        updated_at: String(decision.timestamp),
+      };
+      await this.writeManifest(runRoot, nextManifest);
+      return {
+        schemaVersion: "startup_opportunity.confirm_pre_candidates_result.v1",
+        runId: input.runId,
+        sourceFanInRef: input.expectedFanInRef,
+        sourceFanInHash: input.expectedFanInHash,
+        selectedPreCandidateRefs,
+        nextAction: input.nextAction,
+        decisionRef,
+        decisionHash: canonicalContentHash(decision),
         confirmationBasis: "caller_attested_user_confirmation",
         harnessIdentityVerification: "not_available",
         status: status === "appended" ? "confirmed" : "idempotent_replay",
@@ -4583,9 +4883,14 @@ export class RunStore {
         decision.decision_type === "prior_input_admitted" ||
         decision.decision_type === "prior_input_consumed" ||
         decision.decision_type === "research_handoff_consumed" ||
-        decision.decision_type === "subject_reformed"
+        decision.decision_type === "subject_reformed" ||
+        decision.decision_type === "pre_candidate_interest_confirmed"
       ) {
-        exactRecords.set(`decisions.jsonl#${String(decision.decision_id)}`, decision);
+        const decisionRef = `decisions.jsonl#${String(decision.decision_id)}`;
+        exactRecords.set(
+          decisionRef,
+          await this.logs.readExactRecord(runRoot, runId, decisionRef, "decisions.jsonl"),
+        );
       }
     }
     if (terminalReportRequested || includeAllFormalArtifacts) {
@@ -6153,6 +6458,17 @@ export class RunStore {
     const currentRefs = new Set(manifest.artifact_refs);
     const current = formal.filter((entry) => currentRefs.has(entry.path));
     const byPath = new Map(current.map((entry) => [entry.path, entry] as const));
+    const currentEnvelopeByPath = new Map(
+      current.flatMap((entry) => {
+        const envelope = entry.document;
+        return isRecord(envelope) &&
+          isCurrentEnvelopeSchema(envelope.schema_version) &&
+          envelope.artifact_path === entry.path &&
+          isRecord(envelope.document)
+          ? [[entry.path, envelope as FormalArtifactEnvelope] as const]
+          : [];
+      }),
+    );
     const envelopeAt = async (
       artifactRef: string,
       expectedType: string,
@@ -6375,6 +6691,188 @@ export class RunStore {
         },
       );
     }
+    const interestDecisionCandidates = (
+      await this.logs.listValidatedRecords(runRoot, manifest.run_id, "decisions.jsonl")
+    ).filter(
+      (decision) =>
+        decision.decision_type === "pre_candidate_interest_confirmed" &&
+        decision.pre_candidate_source_fan_in_ref === fanInRef,
+    );
+    const exactInterestDecisions: Record<string, unknown>[] = [];
+    for (const decision of interestDecisionCandidates) {
+      const decisionRef = `decisions.jsonl#${String(decision.decision_id)}`;
+      exactInterestDecisions.push(
+        await this.logs.readExactRecord(runRoot, manifest.run_id, decisionRef, "decisions.jsonl"),
+      );
+    }
+    const interestDecision = latestDecisionByTimestamp(exactInterestDecisions);
+    if (interestDecision === null) {
+      throw new StoreError(
+        "run.discovery_synthesis_pre_candidate_confirmation_required",
+        "G2.3 requires caller-attested user confirmation of the retained pre-candidates before formalization",
+        { fanInRef },
+      );
+    }
+    const interestIssues = this.preCandidateInterestDecisionIssues(
+      manifest,
+      fanIn,
+      currentEnvelopeByPath,
+      interestDecision,
+    );
+    if (
+      interestIssues.length > 0 ||
+      interestDecision.pre_candidate_next_action !== "proceed_with_selected"
+    ) {
+      throw new StoreError(
+        "run.discovery_synthesis_pre_candidate_confirmation_invalid",
+        "G2.3 requires the latest pre-candidate user decision for this fan-in to proceed with selected retained pre-candidates",
+        {
+          fanInRef,
+          decisionRef: `decisions.jsonl#${String(interestDecision.decision_id)}`,
+          nextAction: interestDecision.pre_candidate_next_action ?? null,
+          issues: interestIssues,
+        },
+      );
+    }
+    const selectedByUser = this.selectedPreCandidateRefsFromInterestDecision(interestDecision);
+    if (!sourcePreCandidateRefs.every((ref) => selectedByUser.includes(ref))) {
+      throw new StoreError(
+        "run.discovery_synthesis_pre_candidate_not_user_selected",
+        "G2.3 may formalize only retained pre-candidates selected by the latest user confirmation",
+        {
+          sourcePreCandidateRefs,
+          selectedPreCandidateRefs: selectedByUser,
+        },
+      );
+    }
+  }
+
+  private async currentFormalEnvelopeMapLocked(
+    runRoot: string,
+    manifest: RunManifest,
+  ): Promise<ReadonlyMap<string, FormalArtifactEnvelope>> {
+    const currentRefs = new Set(manifest.artifact_refs);
+    const current = new Map<string, FormalArtifactEnvelope>();
+    for (const entry of await this.artifacts.listFormalDocuments(runRoot)) {
+      if (!currentRefs.has(entry.path) || !isRecord(entry.document)) {
+        continue;
+      }
+      const envelope = entry.document as FormalArtifactEnvelope;
+      if (
+        isCurrentEnvelopeSchema(envelope.schema_version) &&
+        envelope.artifact_path === entry.path &&
+        isRecord(envelope.document)
+      ) {
+        current.set(entry.path, envelope);
+      }
+    }
+    return current;
+  }
+
+  private preCandidateInterestDecisionIssues(
+    manifest: RunManifest,
+    fanIn: FormalArtifactEnvelope,
+    currentByPath: ReadonlyMap<string, FormalArtifactEnvelope>,
+    decision: Record<string, unknown>,
+  ): readonly Record<string, unknown>[] {
+    const issues: Record<string, unknown>[] = [];
+    const materializedRefs = strings(fanIn.document.materialized_pre_candidate_refs);
+    const retainedRefs = strings(fanIn.document.retained_pre_candidate_refs);
+    const dispositionRows = records(decision.pre_candidate_interest_dispositions);
+    const dispositionRefs = dispositionRows.map((row) => String(row.pre_candidate_ref));
+    if (
+      decision.schema_version !== "startup_opportunity.decision.v1" ||
+      decision.decision_type !== "pre_candidate_interest_confirmed" ||
+      decision.actor !== "main_agent" ||
+      decision.run_id !== manifest.run_id ||
+      decision.pre_candidate_source_fan_in_ref !== fanIn.artifact_path ||
+      decision.pre_candidate_source_fan_in_hash !== fanIn.content_hash ||
+      decision.confirmation_basis !== "caller_attested_user_confirmation" ||
+      decision.harness_identity_verification !== "not_available"
+    ) {
+      issues.push({
+        code: "pre_candidate_interest.identity_mismatch",
+        fanInRef: fanIn.artifact_path,
+      });
+    }
+    if (
+      dispositionRows.length !== dispositionRefs.length ||
+      new Set(dispositionRefs).size !== dispositionRefs.length ||
+      !sameStringSet(dispositionRefs, materializedRefs)
+    ) {
+      issues.push({
+        code: "pre_candidate_interest.disposition_closure_mismatch",
+        expectedRefs: [...materializedRefs].sort(),
+        actualRefs: [...dispositionRefs].sort(),
+      });
+    }
+    for (const row of dispositionRows) {
+      const ref = String(row.pre_candidate_ref);
+      const preCandidate = currentByPath.get(ref);
+      if (
+        preCandidate === undefined ||
+        preCandidate.artifact_type !== "startup_opportunity.concrete_pre_candidate.v1" ||
+        preCandidate.document.run_id !== manifest.run_id ||
+        row.pre_candidate_content_hash !== preCandidate.content_hash
+      ) {
+        issues.push({
+          code: "pre_candidate_interest.pre_candidate_hash_mismatch",
+          preCandidateRef: ref,
+          expectedHash: preCandidate?.content_hash ?? null,
+          actualHash: row.pre_candidate_content_hash ?? null,
+        });
+      }
+    }
+    const selectedRefs = dispositionRows
+      .filter((row) => row.interest_disposition === "selected_for_continuation")
+      .map((row) => String(row.pre_candidate_ref));
+    if (
+      decision.pre_candidate_next_action === "proceed_with_selected" &&
+      selectedRefs.length === 0
+    ) {
+      issues.push({ code: "pre_candidate_interest.selected_required_for_proceed" });
+    }
+    if (
+      (decision.pre_candidate_next_action === "run_additional_discovery_same_scope" ||
+        decision.pre_candidate_next_action === "stop_current_run") &&
+      selectedRefs.length > 0
+    ) {
+      issues.push({
+        code: "pre_candidate_interest.selected_forbidden_for_non_proceed_action",
+        selectedRefs: [...selectedRefs].sort(),
+        nextAction: decision.pre_candidate_next_action,
+      });
+    }
+    const unretainedSelectedRefs = selectedRefs.filter((ref) => !retainedRefs.includes(ref));
+    if (unretainedSelectedRefs.length > 0) {
+      issues.push({
+        code: "pre_candidate_interest.selected_pre_candidate_not_retained",
+        selectedRefs: [...selectedRefs].sort(),
+        retainedRefs: [...retainedRefs].sort(),
+      });
+    }
+    if (
+      ![
+        "proceed_with_selected",
+        "run_additional_discovery_same_scope",
+        "stop_current_run",
+      ].includes(String(decision.pre_candidate_next_action))
+    ) {
+      issues.push({
+        code: "pre_candidate_interest.next_action_invalid",
+        nextAction: decision.pre_candidate_next_action ?? null,
+      });
+    }
+    return issues;
+  }
+
+  private selectedPreCandidateRefsFromInterestDecision(
+    decision: Record<string, unknown>,
+  ): readonly string[] {
+    return records(decision.pre_candidate_interest_dispositions)
+      .filter((row) => row.interest_disposition === "selected_for_continuation")
+      .map((row) => String(row.pre_candidate_ref))
+      .sort();
   }
 
   private async assertLaneLifecycleLaunchIdentitiesLocked(
@@ -7085,23 +7583,28 @@ export class RunStore {
       decision.decision_type === "prior_input_admitted" ||
       decision.decision_type === "prior_input_consumed" ||
       decision.decision_type === "research_handoff_consumed" ||
-      decision.decision_type === "subject_reformed"
+      decision.decision_type === "subject_reformed" ||
+      decision.decision_type === "pre_candidate_interest_confirmed"
     ) {
       throw new StoreError(
-        decision.decision_type === "subject_reformed"
-          ? "run.subject_reformation_dedicated_path_required"
-          : decision.decision_type === "prior_input_admitted" ||
-              decision.decision_type === "prior_input_consumed" ||
-              decision.decision_type === "research_handoff_consumed"
-            ? "run.prior_input_dedicated_path_required"
-            : "run.scope_confirmation_dedicated_path_required",
+        decision.decision_type === "pre_candidate_interest_confirmed"
+          ? "run.pre_candidate_interest_dedicated_path_required"
+          : decision.decision_type === "subject_reformed"
+            ? "run.subject_reformation_dedicated_path_required"
+            : decision.decision_type === "prior_input_admitted" ||
+                decision.decision_type === "prior_input_consumed" ||
+                decision.decision_type === "research_handoff_consumed"
+              ? "run.prior_input_dedicated_path_required"
+              : "run.scope_confirmation_dedicated_path_required",
         decision.decision_type === "prior_input_admitted"
           ? "prior input admission must use admitPriorInput() so the Store hashes the exact explicitly named source bytes"
           : decision.decision_type === "research_handoff_consumed"
             ? "research handoff consumption must use readResearchHandoff() so the Store freezes its exact provenance boundary before returning bytes"
-            : decision.decision_type === "subject_reformed"
-              ? "subject reformation must use reformDecisionSubject() so the Store verifies terminal lineage and post-terminal causal inputs"
-              : "Scope proposals and confirmations must use the dedicated proposeScope() and confirmScope() paths",
+            : decision.decision_type === "pre_candidate_interest_confirmed"
+              ? "pre-candidate user interest must use confirmPreCandidates() so the Store binds the exact fan-in and materialized pre-candidate hashes"
+              : decision.decision_type === "subject_reformed"
+                ? "subject reformation must use reformDecisionSubject() so the Store verifies terminal lineage and post-terminal causal inputs"
+                : "Scope proposals and confirmations must use the dedicated proposeScope() and confirmScope() paths",
         { decisionType: decision.decision_type },
       );
     }
@@ -9575,8 +10078,15 @@ export class RunStore {
       runId,
       "decisions.jsonl",
     )) {
-      if (decision.decision_type === "research_handoff_consumed") {
-        exactJsonlRecords.set(`decisions.jsonl#${String(decision.decision_id)}`, decision);
+      if (
+        decision.decision_type === "research_handoff_consumed" ||
+        decision.decision_type === "pre_candidate_interest_confirmed"
+      ) {
+        const decisionRef = `decisions.jsonl#${String(decision.decision_id)}`;
+        exactJsonlRecords.set(
+          decisionRef,
+          await this.logs.readExactRecord(runRoot, runId, decisionRef, "decisions.jsonl"),
+        );
       }
     }
     const bundle = this.validator.validateDocumentBundle(

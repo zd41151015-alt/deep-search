@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
+import { sha256Hex } from "../harness/src/artifact-store/canonical.js";
 import {
   ArtifactStore,
   canonicalContentHash,
@@ -14,6 +15,7 @@ import {
   deriveSolutionExplorationObservations,
   EvidenceStore,
   type FormalArtifactEnvelope,
+  operationKey,
   ReportRuntime,
   RunStore,
   StoreError,
@@ -71,6 +73,7 @@ import {
   G23_MERGE,
   G23_OPPORTUNITY_A,
   G23_OPPORTUNITY_B,
+  G23_PRE_CANDIDATE_INTEREST_DECISION_REF,
   G23_READINESS,
   G23_READINESS_GAP,
   G23_SNAPSHOT,
@@ -147,6 +150,21 @@ function effective(bundle: DocumentBundle, artifactPath: string): Record<string,
     : value;
 }
 
+function exactRecordDocument(bundle: DocumentBundle, ref: string): Record<string, unknown> {
+  const found = bundle.exact_records?.find((candidate) => candidate.ref === ref);
+  assert.ok(found, ref);
+  return found.document;
+}
+
+function decisionReceiptPath(runRoot: string, decision: Record<string, unknown>): string {
+  const key = operationKey("append_jsonl", {
+    run_id: decision.run_id,
+    log_path: "decisions.jsonl",
+    record: decision,
+  });
+  return path.join(runRoot, ".store/operations", `log-${sha256Hex(key)}.json`);
+}
+
 function refresh(bundle: DocumentBundle, artifactPath: string): void {
   const value = entry(bundle, artifactPath);
   if (String(value.schema_version).startsWith("startup_opportunity.artifact_envelope.")) {
@@ -209,6 +227,14 @@ function refreshRetainedPreCandidateBindings(bundle: DocumentBundle): void {
   assert.ok(disposition);
   disposition.pre_candidate_content_hash = preCandidateHash;
   refresh(bundle, G22_FAN_IN);
+
+  const interestDecision = exactRecordDocument(bundle, G23_PRE_CANDIDATE_INTEREST_DECISION_REF);
+  interestDecision.pre_candidate_source_fan_in_hash = entry(bundle, G22_FAN_IN).content_hash;
+  const interestDisposition = (
+    interestDecision.pre_candidate_interest_dispositions as Record<string, unknown>[]
+  ).find((candidate) => candidate.pre_candidate_ref === G22_RETAINED_PRE_CANDIDATE);
+  assert.ok(interestDisposition);
+  interestDisposition.pre_candidate_content_hash = preCandidateHash;
 
   for (const conversionRef of [
     G23_DEMAND_CONVERSION,
@@ -897,7 +923,10 @@ async function setup(
   return { root, runsRoot, runRoot: path.join(runsRoot, runId), runId, store, validator, bundle };
 }
 
-async function publishThroughFanIn(state: State): Promise<void> {
+async function publishThroughFanIn(
+  state: State,
+  options: { readonly confirmPreCandidates?: boolean } = {},
+): Promise<void> {
   const initialCandidates = byTypes(
     state.bundle,
     "startup_opportunity.discovery_candidate.v1",
@@ -976,6 +1005,18 @@ async function publishThroughFanIn(state: State): Promise<void> {
     runId: state.runId,
     envelope: runtimeEnvelope(state.bundle, G22_FAN_IN),
   });
+  if (options.confirmPreCandidates !== false) {
+    await state.store.confirmPreCandidates({
+      runId: state.runId,
+      expectedFanInRef: G22_FAN_IN,
+      expectedFanInHash: runtimeEnvelope(state.bundle, G22_FAN_IN).content_hash,
+      selectedPreCandidateRefs: [G22_RETAINED_PRE_CANDIDATE],
+      nextAction: "proceed_with_selected",
+      userConfirmationAttestation:
+        "SYNTHETIC caller attests that the user selected the retained pre-candidate for continuation.",
+      confirmedAt: "2026-07-27T19:59:00Z",
+    });
+  }
   await state.store.publishArtifactBundle({
     runId: state.runId,
     envelopes: discoverySynthesisReadinessEnvelopes(state.bundle),
@@ -1054,6 +1095,65 @@ test("G2.3 validates a closed conversion, formal thesis, freeze, and semantic me
   const result = validator.validateDocumentBundle(state.bundle);
   assert.equal(result.valid, true, JSON.stringify(result.referenceErrors, null, 2));
   assert.equal(synthesisEnvelopes(state.bundle).length, SYNTHESIS_PATHS.size);
+});
+
+test("G2.3 offline validation requires exact user pre-candidate continuation confirmation", async (context) => {
+  const state = await setup(context, "missing-interest-decision");
+  const bundle = clone(state.bundle);
+  (
+    bundle as unknown as {
+      exact_records: { ref: string; document: Record<string, unknown> }[];
+    }
+  ).exact_records = (bundle.exact_records ?? []).filter(
+    (record) => record.ref !== G23_PRE_CANDIDATE_INTEREST_DECISION_REF,
+  );
+  const validator = await createArtifactValidator(repositoryRoot);
+  const result = validator.validateDocumentBundle(bundle);
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.referenceErrors.some(
+      (error) => error.code === "runtime.discovery_synthesis_pre_candidate_confirmation_required",
+    ),
+    JSON.stringify(result.referenceErrors, null, 2),
+  );
+});
+
+test("G2.3 publication rejects synthesis before user-selected pre-candidate confirmation", async (context) => {
+  const state = await setup(context, "publish-missing-interest-decision");
+  await publishThroughFanIn(state, { confirmPreCandidates: false });
+  const before = await treeSnapshot(state.runRoot);
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: synthesisEnvelopes(state.bundle),
+    }),
+    (error: unknown) =>
+      error instanceof StoreError &&
+      error.code === "run.discovery_synthesis_pre_candidate_confirmation_required",
+  );
+  assert.deepEqual(await treeSnapshot(state.runRoot), before);
+});
+
+test("G2.3 publication requires the pre-candidate confirmation exact JSONL receipt", async (context) => {
+  const state = await setup(context, "publish-interest-decision-missing-receipt");
+  await publishThroughFanIn(state);
+  const decision = (await readFile(path.join(state.runRoot, "decisions.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .find((record) => record.decision_type === "pre_candidate_interest_confirmed");
+  assert.ok(decision);
+  await rm(decisionReceiptPath(state.runRoot, decision), { force: true });
+
+  const before = await treeSnapshot(state.runRoot);
+  await assert.rejects(
+    state.store.publishArtifactBundle({
+      runId: state.runId,
+      envelopes: synthesisEnvelopes(state.bundle),
+    }),
+    (error: unknown) => error instanceof StoreError && error.code === "recovery.missing_operation",
+  );
+  assert.deepEqual(await treeSnapshot(state.runRoot), before);
 });
 
 test("G2.3 preserves explicit single-Solution exploration states and provisional posture", async (context) => {

@@ -33,6 +33,7 @@
         "belief_changed_by_evidence",
         "remaining_disagreement_recorded",
         "candidate_rejected_by_user",
+        "pre_candidate_interest_confirmed",
         "followup_requested_by_user",
         "plan_change_requested_by_user",
         "prior_input_admitted",
@@ -55,6 +56,37 @@
     },
     "artifact_refs": {
       "$ref": "./definitions.schema.json#/$defs/artifactRefArray"
+    },
+    "pre_candidate_source_fan_in_ref": {
+      "type": "string",
+      "pattern": "^artifacts/discovery/fan-in\\.r[1-9][0-9]*\\.json$"
+    },
+    "pre_candidate_source_fan_in_hash": {
+      "$ref": "./definitions.schema.json#/$defs/sha256"
+    },
+    "pre_candidate_next_action": {
+      "enum": ["proceed_with_selected", "run_additional_discovery_same_scope", "stop_current_run"]
+    },
+    "pre_candidate_interest_dispositions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pre_candidate_ref", "pre_candidate_content_hash", "interest_disposition"],
+        "properties": {
+          "pre_candidate_ref": {
+            "$ref": "../discovery/candidates/definitions.schema.json#/$defs/concretePreCandidateRef"
+          },
+          "pre_candidate_content_hash": {
+            "$ref": "./definitions.schema.json#/$defs/sha256"
+          },
+          "interest_disposition": {
+            "enum": ["selected_for_continuation", "not_selected_current_run"]
+          }
+        }
+      }
     },
     "prior_input_id": {
       "$ref": "./definitions.schema.json#/$defs/identifier"
@@ -257,6 +289,87 @@
             "const": "main_agent"
           }
         }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision_type": {
+            "const": "pre_candidate_interest_confirmed"
+          }
+        },
+        "required": ["decision_type"]
+      },
+      "then": {
+        "required": [
+          "pre_candidate_source_fan_in_ref",
+          "pre_candidate_source_fan_in_hash",
+          "pre_candidate_next_action",
+          "pre_candidate_interest_dispositions",
+          "confirmation_basis",
+          "harness_identity_verification"
+        ],
+        "properties": {
+          "actor": {
+            "const": "main_agent"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "pre_candidate_next_action": {
+                  "const": "proceed_with_selected"
+                }
+              },
+              "required": ["pre_candidate_next_action"]
+            },
+            "then": {
+              "properties": {
+                "pre_candidate_interest_dispositions": {
+                  "type": "array",
+                  "contains": {
+                    "type": "object",
+                    "properties": {
+                      "interest_disposition": {
+                        "const": "selected_for_continuation"
+                      }
+                    },
+                    "required": ["interest_disposition"]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "pre_candidate_next_action": {
+                  "enum": ["run_additional_discovery_same_scope", "stop_current_run"]
+                }
+              },
+              "required": ["pre_candidate_next_action"]
+            },
+            "then": {
+              "properties": {
+                "pre_candidate_interest_dispositions": {
+                  "type": "array",
+                  "not": {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "interest_disposition": {
+                          "const": "selected_for_continuation"
+                        }
+                      },
+                      "required": ["interest_disposition"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
       }
     },
     {

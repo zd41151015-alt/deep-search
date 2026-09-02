@@ -29,6 +29,7 @@ import {
   createDiscoveryCandidateFixture,
   fixtureEffective,
   fixtureEntry,
+  G22_FAN_IN,
   G22_GENERATION_EVIDENCE,
   G22_GENERATION_LANE,
   G22_GENERATION_TASK,
@@ -487,6 +488,16 @@ async function prepareEnrichmentBranchRun(t: TestContext) {
       bundle,
       "startup_opportunity.discovery_fan_in.v2",
     )[0] as FormalArtifactEnvelope,
+  });
+  await store.confirmPreCandidates({
+    runId,
+    expectedFanInRef: G22_FAN_IN,
+    expectedFanInHash: fixtureEnvelope(bundle, G22_FAN_IN).content_hash,
+    selectedPreCandidateRefs: [G22_RETAINED_PRE_CANDIDATE],
+    nextAction: "proceed_with_selected",
+    userConfirmationAttestation:
+      "SYNTHETIC caller attests that the user selected the retained pre-candidate for continuation.",
+    confirmedAt: "2026-08-19T09:19:00Z",
   });
   await store.publishArtifactBundle({
     runId,

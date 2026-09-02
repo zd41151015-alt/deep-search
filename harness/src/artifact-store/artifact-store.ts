@@ -2376,9 +2376,19 @@ export class ArtifactStore {
         decision.decision_type === "prior_input_admitted" ||
         decision.decision_type === "prior_input_consumed" ||
         decision.decision_type === "research_handoff_consumed" ||
-        decision.decision_type === "subject_reformed"
+        decision.decision_type === "subject_reformed" ||
+        decision.decision_type === "pre_candidate_interest_confirmed"
       ) {
-        exactJsonlRecords.set(`decisions.jsonl#${String(decision.decision_id)}`, decision);
+        const decisionRef = `decisions.jsonl#${String(decision.decision_id)}`;
+        exactJsonlRecords.set(
+          decisionRef,
+          await this.logs.readExactRecord(
+            runRoot,
+            envelopes[0]?.run_id ?? "",
+            decisionRef,
+            "decisions.jsonl",
+          ),
+        );
       }
     }
     for (const record of await this.evidence.listRecordsLocked(

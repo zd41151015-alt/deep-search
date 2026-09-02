@@ -128,19 +128,29 @@ function validateCancellationAuthority(
 ): void {
   const ref = decision.user_decision_ref;
   const record = typeof ref === "string" ? exactRecords.get(ref) : undefined;
+  const isLegacyCancellation =
+    record?.schema_version === "startup_opportunity.decision.v1" &&
+    record.decision_type === "run_cancelled" &&
+    record.actor === "user";
+  const isPreCandidateStop =
+    record?.schema_version === "startup_opportunity.decision.v1" &&
+    record.decision_type === "pre_candidate_interest_confirmed" &&
+    record.actor === "main_agent" &&
+    record.pre_candidate_next_action === "stop_current_run" &&
+    record.confirmation_basis === "caller_attested_user_confirmation" &&
+    record.harness_identity_verification === "not_available";
   if (
     typeof ref !== "string" ||
-    record?.schema_version !== "startup_opportunity.decision.v1" ||
-    record.decision_type !== "run_cancelled" ||
-    record.actor !== "user" ||
+    record === undefined ||
     record.run_id !== decision.run_id ||
-    ref.split("#", 2)[1] !== record.decision_id
+    ref.split("#", 2)[1] !== record.decision_id ||
+    (!isLegacyCancellation && !isPreCandidateStop)
   ) {
     errors.push(
       issue(
         "adaptation.cancellation_authority_invalid",
         `${decisionPath}#/user_decision_ref`,
-        "cancel_research requires the exact same-Run user run_cancelled Decision",
+        "cancel_research requires the exact same-Run user run_cancelled Decision or a caller-attested pre-candidate stop decision",
         { userDecisionRef: typeof ref === "string" ? ref : null },
       ),
     );
